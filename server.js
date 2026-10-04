@@ -1,3 +1,4 @@
+const db = require("./database");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -26,6 +27,13 @@ io.on("connection", (socket) => {
       camera: false,
       microphone: false,
     };
+
+    db.prepare(
+      `
+    INSERT INTO users (username)
+    VALUES (?)
+`,
+    ).run(username);
 
     console.log(`${username} joined room ${roomId}`);
 
