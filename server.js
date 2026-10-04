@@ -1,0 +1,158 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static("public"));
+
+app.get("/room/:roomId", (req, res) => {
+  res.sendFile(__dirname + "/public/index.html");
+});
+
+const users = {};
+
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+
+  socket.on("join-room", ({ roomId, username }) => {
+    socket.join(roomId);
+
+    users[socket.id] = {
+      roomId: roomId,
+      username: username,
+      camera: false,
+      microphone: false,
+    };
+
+    console.log(`${username} joined room ${roomId}`);
+
+    const roomUsers = Object.keys(users)
+      .filter((id) => {
+        return users[id].roomId === roomId && id !== socket.id;
+      })
+      .map((id) => ({
+        id: id,
+        username: users[id].username,
+        camera: users[id].camera,
+        microphone: users[id].microphone,
+      }));
+
+    socket.emit("room-users", roomUsers);
+
+    socket.to(roomId).emit("user-joined", {
+      id: socket.id,
+      username: username,
+      camera: false,
+      microphone: false,
+    });
+
+    roomUsers.forEach((user) => {
+      socket.emit("start-connection", user);
+    });
+  });
+
+  socket.on("media-state", ({ camera, microphone }) => {
+    const user = users[socket.id];
+
+    if (!user) {
+      return;
+    }
+
+    user.camera = Boolean(camera);
+
+    user.microphone = Boolean(microphone);
+
+    console.log(`${user.username} media:`, {
+      camera: user.camera,
+      microphone: user.microphone,
+    });
+
+    socket.to(user.roomId).emit("media-state", {
+      id: socket.id,
+      username: user.username,
+      camera: user.camera,
+      microphone: user.microphone,
+    });
+  });
+
+  socket.on("leave-room", () => {
+    const user = users[socket.id];
+
+    if (!user) {
+      console.log("leave-room received, but user was not found.");
+
+      return;
+    }
+
+    console.log(`${user.username} clicked Leave in room ${user.roomId}`);
+
+    socket.to(user.roomId).emit("user-left", {
+      id: socket.id,
+      username: user.username,
+    });
+
+    delete users[socket.id];
+
+    socket.leave(user.roomId);
+
+    console.log(`${user.username} was removed from room ${user.roomId}`);
+  });
+
+  socket.on("chat-message", ({ roomId, message }) => {
+    const user = users[socket.id];
+
+    if (!user) {
+      return;
+    }
+
+    io.to(roomId).emit("chat-message", {
+      username: user.username,
+      message: message,
+    });
+  });
+
+  socket.on("offer", ({ target, offer }) => {
+    io.to(target).emit("offer", {
+      sender: socket.id,
+      offer: offer,
+    });
+  });
+
+  socket.on("answer", ({ target, answer }) => {
+    io.to(target).emit("answer", {
+      sender: socket.id,
+      answer: answer,
+    });
+  });
+
+  socket.on("ice-candidate", ({ target, candidate }) => {
+    io.to(target).emit("ice-candidate", {
+      sender: socket.id,
+      candidate: candidate,
+    });
+  });
+
+  socket.on("disconnect", () => {
+    const user = users[socket.id];
+
+    if (user) {
+      socket.to(user.roomId).emit("user-left", {
+        id: socket.id,
+        username: user.username,
+      });
+
+      console.log(`${user.username} disconnected from room ${user.roomId}`);
+
+      delete users[socket.id];
+    }
+  });
+});
+
+const PORT = 3000;
+
+server.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+});
