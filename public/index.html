@@ -70,6 +70,52 @@
         font-size: 14px;
       }
 
+      /* LOGIN */
+
+      #loginArea {
+        width: 400px;
+        max-width: 90%;
+
+        margin: 20px auto;
+
+        background: #333;
+
+        border-radius: 10px;
+
+        padding: 20px;
+
+        text-align: center;
+      }
+
+      #loginArea h2 {
+        margin-top: 0;
+      }
+
+      #loginUsernameInput,
+      #loginPasswordInput {
+        display: block;
+
+        width: 100%;
+
+        padding: 10px;
+
+        margin: 8px 0;
+
+        border: none;
+
+        border-radius: 6px;
+
+        font-size: 14px;
+      }
+
+      #loginMessage {
+        min-height: 20px;
+
+        margin-top: 10px;
+
+        font-size: 14px;
+      }
+
       /* VIDEO GRID */
 
       #videos {
@@ -444,6 +490,10 @@
         #accountArea {
           width: 95%;
         }
+
+        #loginArea {
+          width: 95%;
+        }
       }
     </style>
   </head>
@@ -479,6 +529,30 @@
       <button id="registerButton">Create Account</button>
 
       <div id="registrationMessage"></div>
+    </div>
+
+    <!-- LOGIN -->
+
+    <div id="loginArea">
+      <h2>Login</h2>
+
+      <input
+        id="loginUsernameInput"
+        type="text"
+        placeholder="Username"
+        autocomplete="username"
+      />
+
+      <input
+        id="loginPasswordInput"
+        type="password"
+        placeholder="Password"
+        autocomplete="current-password"
+      />
+
+      <button id="loginButton">Login</button>
+
+      <div id="loginMessage"></div>
     </div>
 
     <!-- JOIN ROOM -->
