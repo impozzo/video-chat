@@ -591,7 +591,7 @@ async function stopCamera() {
       .find(
         (transceiver) =>
           transceiver.receiver &&
-          transceiver.receiver.track &&
+          transceiver.track &&
           transceiver.receiver.track.kind === "video",
       );
 
@@ -1030,41 +1030,48 @@ function sendMessage() {
   messageInput.focus();
 }
 
-socket.on("chat-message", ({ username: messageUsername, message }) => {
+socket.on("chat-message", ({ username: senderUsername, message }) => {
   const messageElement = document.createElement("div");
 
-  const isMine = messageUsername === username;
+  // Determine whether this is our own message.
+  const isMine = senderUsername === username;
 
-  messageElement.className = "chat-message " + (isMine ? "mine" : "other");
+  messageElement.className = isMine
+    ? "chat-message mine"
+    : "chat-message other";
 
-  const header = document.createElement("div");
+  const messageHeader = document.createElement("div");
 
-  header.className = "chat-header";
+  messageHeader.className = "message-header";
 
-  header.textContent = isMine ? "You" : messageUsername;
+  const nameElement = document.createElement("span");
 
-  const text = document.createElement("div");
+  nameElement.className = "message-username";
 
-  text.className = "chat-text";
+  nameElement.textContent = isMine ? `${senderUsername} (You)` : senderUsername;
 
-  text.textContent = message;
+  const timeElement = document.createElement("span");
 
-  const time = document.createElement("div");
+  timeElement.className = "message-time";
 
-  time.className = "chat-time";
-
-  const now = new Date();
-
-  time.textContent = now.toLocaleTimeString([], {
+  timeElement.textContent = new Date().toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
 
-  messageElement.appendChild(header);
+  const textElement = document.createElement("div");
 
-  messageElement.appendChild(text);
+  textElement.className = "message-text";
 
-  messageElement.appendChild(time);
+  textElement.textContent = message;
+
+  messageHeader.appendChild(nameElement);
+
+  messageHeader.appendChild(timeElement);
+
+  messageElement.appendChild(messageHeader);
+
+  messageElement.appendChild(textElement);
 
   messages.appendChild(messageElement);
 

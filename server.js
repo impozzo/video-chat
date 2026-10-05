@@ -21,21 +21,28 @@ io.on("connection", (socket) => {
   socket.on("join-room", ({ roomId, username }) => {
     socket.join(roomId);
 
+    const databaseUser = db
+      .prepare(
+        `
+        INSERT INTO users (username)
+        VALUES (?)
+      `,
+      )
+      .run(username);
+
+    const userId = Number(databaseUser.lastInsertRowid);
+
     users[socket.id] = {
       roomId: roomId,
       username: username,
+      userId: userId,
       camera: false,
       microphone: false,
     };
 
-    db.prepare(
-      `
-    INSERT INTO users (username)
-    VALUES (?)
-`,
-    ).run(username);
-
-    console.log(`${username} joined room ${roomId}`);
+    console.log(
+      `${username} joined room ${roomId} with database user ID ${userId}`,
+    );
 
     const roomUsers = Object.keys(users)
       .filter((id) => {
@@ -115,6 +122,17 @@ io.on("connection", (socket) => {
     if (!user) {
       return;
     }
+
+    db.prepare(
+      `
+      INSERT INTO messages (
+        room_id,
+        user_id,
+        message
+      )
+      VALUES (?, ?, ?)
+    `,
+    ).run(roomId, user.userId, message);
 
     io.to(roomId).emit("chat-message", {
       username: user.username,
