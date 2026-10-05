@@ -18,6 +18,7 @@ const users = {};
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
+  // JOIN ROOM
   socket.on("join-room", ({ roomId, username }) => {
     socket.join(roomId);
 
@@ -69,6 +70,28 @@ io.on("connection", (socket) => {
     });
   });
 
+  // GET CHAT HISTORY
+  socket.on("get-chat-history", (roomId) => {
+    const messages = db
+      .prepare(
+        `
+        SELECT
+          messages.message,
+          messages.created_at,
+          users.username
+        FROM messages
+        JOIN users
+          ON messages.user_id = users.id
+        WHERE messages.room_id = ?
+        ORDER BY messages.id ASC
+      `,
+      )
+      .all(roomId);
+
+    socket.emit("chat-history", messages);
+  });
+
+  // MEDIA STATE
   socket.on("media-state", ({ camera, microphone }) => {
     const user = users[socket.id];
 
@@ -77,7 +100,6 @@ io.on("connection", (socket) => {
     }
 
     user.camera = Boolean(camera);
-
     user.microphone = Boolean(microphone);
 
     console.log(`${user.username} media:`, {
@@ -93,6 +115,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // LEAVE ROOM
   socket.on("leave-room", () => {
     const user = users[socket.id];
 
@@ -116,6 +139,7 @@ io.on("connection", (socket) => {
     console.log(`${user.username} was removed from room ${user.roomId}`);
   });
 
+  // CHAT MESSAGE
   socket.on("chat-message", ({ roomId, message }) => {
     const user = users[socket.id];
 
@@ -140,6 +164,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // OFFER
   socket.on("offer", ({ target, offer }) => {
     io.to(target).emit("offer", {
       sender: socket.id,
@@ -147,6 +172,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ANSWER
   socket.on("answer", ({ target, answer }) => {
     io.to(target).emit("answer", {
       sender: socket.id,
@@ -154,6 +180,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // ICE CANDIDATE
   socket.on("ice-candidate", ({ target, candidate }) => {
     io.to(target).emit("ice-candidate", {
       sender: socket.id,
@@ -161,6 +188,7 @@ io.on("connection", (socket) => {
     });
   });
 
+  // DISCONNECT
   socket.on("disconnect", () => {
     const user = users[socket.id];
 

@@ -37,9 +37,7 @@ let screenTrack = null;
 let cameraTrack = null;
 let microphoneTrack = null;
 
-// --------------------------------------------------
 // ROOM
-// --------------------------------------------------
 
 roomInfo.textContent = `Room: ${roomId}`;
 
@@ -50,6 +48,7 @@ function joinRoom() {
 
   if (!username) {
     alert("Please enter a username.");
+
     return;
   }
 
@@ -57,6 +56,9 @@ function joinRoom() {
     roomId: roomId,
     username: username,
   });
+
+  // Ask the server for previously saved chat messages.
+  socket.emit("get-chat-history", roomId);
 
   usernameArea.style.display = "none";
 
@@ -70,9 +72,7 @@ function joinRoom() {
   console.log("Joining room:", roomId);
 }
 
-// --------------------------------------------------
 // COPY ROOM LINK
-// --------------------------------------------------
 
 copyLinkButton.addEventListener("click", async () => {
   try {
@@ -90,9 +90,7 @@ copyLinkButton.addEventListener("click", async () => {
   }
 });
 
-// --------------------------------------------------
 // PEOPLE IN ROOM
-// --------------------------------------------------
 
 function updatePeopleList() {
   peopleList.innerHTML = "";
@@ -106,8 +104,6 @@ function updatePeopleList() {
 
     div.className = "person";
 
-    // NAME
-
     const nameSpan = document.createElement("span");
 
     nameSpan.className = "person-name";
@@ -120,15 +116,11 @@ function updatePeopleList() {
 
     div.appendChild(nameSpan);
 
-    // STATUS AREA
-
     const statusArea = document.createElement("div");
 
     statusArea.className = "person-status";
 
     // CAMERA STATUS
-    // Do NOT show a camera button
-    // next to our own name.
 
     if (person.id !== socket.id) {
       const cameraStatus = document.createElement("button");
@@ -192,17 +184,18 @@ function updatePeopleList() {
   });
 }
 
-// --------------------------------------------------
 // SOCKET EVENTS
-// --------------------------------------------------
 
 socket.on("room-users", (users) => {
   console.log("Existing users:", users);
 
   roomPeople[socket.id] = {
     id: socket.id,
+
     username: username,
+
     camera: cameraOn,
+
     microphone: microphoneOn,
   };
 
@@ -211,8 +204,11 @@ socket.on("room-users", (users) => {
 
     roomPeople[user.id] = {
       id: user.id,
+
       username: user.username,
+
       camera: Boolean(user.camera),
+
       microphone: Boolean(user.microphone),
     };
 
@@ -228,8 +224,11 @@ socket.on("start-connection", (user) => {
   if (!roomPeople[user.id]) {
     roomPeople[user.id] = {
       id: user.id,
+
       username: user.username,
+
       camera: Boolean(user.camera),
+
       microphone: Boolean(user.microphone),
     };
   }
@@ -246,8 +245,11 @@ socket.on("user-joined", (user) => {
 
   roomPeople[user.id] = {
     id: user.id,
+
     username: user.username,
+
     camera: Boolean(user.camera),
+
     microphone: Boolean(user.microphone),
   };
 
@@ -276,8 +278,11 @@ socket.on("media-state", (state) => {
   } else {
     roomPeople[state.id] = {
       id: state.id,
+
       username: state.username,
+
       camera: Boolean(state.camera),
+
       microphone: Boolean(state.microphone),
     };
   }
@@ -289,9 +294,7 @@ socket.on("media-state", (state) => {
   }
 });
 
-// --------------------------------------------------
 // CREATE PEER CONNECTION
-// --------------------------------------------------
 
 function createPeerConnection(
   userId,
@@ -326,6 +329,7 @@ function createPeerConnection(
     if (event.candidate) {
       socket.emit("ice-candidate", {
         target: userId,
+
         candidate: event.candidate,
       });
     }
@@ -364,9 +368,7 @@ function createPeerConnection(
   return pc;
 }
 
-// --------------------------------------------------
 // START CONNECTION
-// --------------------------------------------------
 
 async function startConnection(userId, userName) {
   if (peerConnections[userId]) {
@@ -384,6 +386,7 @@ async function startConnection(userId, userName) {
 
     socket.emit("offer", {
       target: userId,
+
       offer: pc.localDescription,
     });
   } catch (error) {
@@ -391,9 +394,7 @@ async function startConnection(userId, userName) {
   }
 }
 
-// --------------------------------------------------
 // RECEIVE OFFER
-// --------------------------------------------------
 
 socket.on("offer", async ({ sender, offer }) => {
   let pc = peerConnections[sender];
@@ -413,6 +414,7 @@ socket.on("offer", async ({ sender, offer }) => {
 
     socket.emit("answer", {
       target: sender,
+
       answer: pc.localDescription,
     });
   } catch (error) {
@@ -420,9 +422,7 @@ socket.on("offer", async ({ sender, offer }) => {
   }
 });
 
-// --------------------------------------------------
 // RECEIVE ANSWER
-// --------------------------------------------------
 
 socket.on("answer", async ({ sender, answer }) => {
   const pc = peerConnections[sender];
@@ -438,9 +438,7 @@ socket.on("answer", async ({ sender, answer }) => {
   }
 });
 
-// --------------------------------------------------
 // ICE CANDIDATE
-// --------------------------------------------------
 
 socket.on("ice-candidate", async ({ sender, candidate }) => {
   const pc = peerConnections[sender];
@@ -456,9 +454,7 @@ socket.on("ice-candidate", async ({ sender, candidate }) => {
   }
 });
 
-// --------------------------------------------------
 // ATTACH LOCAL TRACKS
-// --------------------------------------------------
 
 function attachLocalTracks(pc) {
   const transceivers = pc.getTransceivers();
@@ -510,9 +506,7 @@ function attachLocalTracks(pc) {
   }
 }
 
-// --------------------------------------------------
 // CAMERA
-// --------------------------------------------------
 
 async function startCamera() {
   try {
@@ -553,6 +547,7 @@ async function startCamera() {
 
     socket.emit("media-state", {
       camera: true,
+
       microphone: microphoneOn,
     });
 
@@ -591,7 +586,7 @@ async function stopCamera() {
       .find(
         (transceiver) =>
           transceiver.receiver &&
-          transceiver.track &&
+          transceiver.receiver.track &&
           transceiver.receiver.track.kind === "video",
       );
 
@@ -606,6 +601,7 @@ async function stopCamera() {
 
   socket.emit("media-state", {
     camera: false,
+
     microphone: microphoneOn,
   });
 
@@ -626,9 +622,7 @@ cameraButton.addEventListener("click", async () => {
   }
 });
 
-// --------------------------------------------------
 // MICROPHONE
-// --------------------------------------------------
 
 async function startMicrophone() {
   try {
@@ -667,6 +661,7 @@ async function startMicrophone() {
 
     socket.emit("media-state", {
       camera: cameraOn,
+
       microphone: true,
     });
 
@@ -718,6 +713,7 @@ async function stopMicrophone() {
 
   socket.emit("media-state", {
     camera: cameraOn,
+
     microphone: false,
   });
 
@@ -738,9 +734,7 @@ muteButton.addEventListener("click", async () => {
   }
 });
 
-// --------------------------------------------------
 // RENEGOTIATE
-// --------------------------------------------------
 
 async function renegotiate(userId, pc) {
   try {
@@ -754,6 +748,7 @@ async function renegotiate(userId, pc) {
 
     socket.emit("offer", {
       target: userId,
+
       offer: pc.localDescription,
     });
   } catch (error) {
@@ -761,9 +756,7 @@ async function renegotiate(userId, pc) {
   }
 }
 
-// --------------------------------------------------
 // LOCAL VIDEO
-// --------------------------------------------------
 
 function showLocalVideo() {
   let container = document.getElementById("local-video-container");
@@ -811,9 +804,7 @@ function hideLocalVideo() {
   }
 }
 
-// --------------------------------------------------
 // REMOTE VIDEO
-// --------------------------------------------------
 
 function ensureRemoteVideo(userId, userName, stream) {
   let container = document.getElementById(`video-container-${userId}`);
@@ -837,8 +828,6 @@ function ensureRemoteVideo(userId, userName, stream) {
 
     container.appendChild(video);
 
-    // CLOSE BUTTON
-
     const closeButton = document.createElement("button");
 
     closeButton.className = "close-video-button";
@@ -852,8 +841,6 @@ function ensureRemoteVideo(userId, userName, stream) {
     });
 
     container.appendChild(closeButton);
-
-    // USERNAME
 
     const label = document.createElement("div");
 
@@ -889,9 +876,7 @@ function hideRemoteVideo(userId) {
   }
 }
 
-// --------------------------------------------------
 // SCREEN SHARING
-// --------------------------------------------------
 
 screenButton.addEventListener("click", async () => {
   if (screenSharing) {
@@ -940,6 +925,7 @@ async function startScreenSharing() {
 
     socket.emit("media-state", {
       camera: true,
+
       microphone: microphoneOn,
     });
 
@@ -993,15 +979,14 @@ async function stopScreenSharing() {
 
   socket.emit("media-state", {
     camera: cameraOn,
+
     microphone: microphoneOn,
   });
 
   screenButton.textContent = "🖥️ Share Screen";
 }
 
-// --------------------------------------------------
 // CHAT
-// --------------------------------------------------
 
 sendButton.addEventListener("click", sendMessage);
 
@@ -1022,6 +1007,7 @@ function sendMessage() {
 
   socket.emit("chat-message", {
     roomId: roomId,
+
     message: message,
   });
 
@@ -1030,10 +1016,11 @@ function sendMessage() {
   messageInput.focus();
 }
 
-socket.on("chat-message", ({ username: senderUsername, message }) => {
+// CREATE CHAT MESSAGE
+
+function createChatMessage(senderUsername, message, createdAt = null) {
   const messageElement = document.createElement("div");
 
-  // Determine whether this is our own message.
   const isMine = senderUsername === username;
 
   messageElement.className = isMine
@@ -1054,7 +1041,15 @@ socket.on("chat-message", ({ username: senderUsername, message }) => {
 
   timeElement.className = "message-time";
 
-  timeElement.textContent = new Date().toLocaleTimeString([], {
+  let messageDate;
+
+  if (createdAt) {
+    messageDate = new Date(createdAt.replace(" ", "T") + "Z");
+  } else {
+    messageDate = new Date();
+  }
+
+  timeElement.textContent = messageDate.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -1073,14 +1068,40 @@ socket.on("chat-message", ({ username: senderUsername, message }) => {
 
   messageElement.appendChild(textElement);
 
+  return messageElement;
+}
+
+// RECEIVE NEW CHAT MESSAGE
+
+socket.on("chat-message", ({ username: senderUsername, message }) => {
+  const messageElement = createChatMessage(senderUsername, message);
+
   messages.appendChild(messageElement);
 
   messages.scrollTop = messages.scrollHeight;
 });
 
-// --------------------------------------------------
+// RECEIVE CHAT HISTORY
+
+socket.on("chat-history", (chatHistory) => {
+  // Clear the current chat display
+  // before loading the saved messages.
+  messages.innerHTML = "";
+
+  chatHistory.forEach(({ username: senderUsername, message, created_at }) => {
+    const messageElement = createChatMessage(
+      senderUsername,
+      message,
+      created_at,
+    );
+
+    messages.appendChild(messageElement);
+  });
+
+  messages.scrollTop = messages.scrollHeight;
+});
+
 // REMOVE PEERS
-// --------------------------------------------------
 
 function removePeer(userId) {
   const pc = peerConnections[userId];
@@ -1102,9 +1123,7 @@ function removePeer(userId) {
   }
 }
 
-// --------------------------------------------------
 // LEAVE ROOM
-// --------------------------------------------------
 
 leaveButton.addEventListener("click", () => {
   socket.emit("leave-room");
