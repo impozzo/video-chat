@@ -8,6 +8,15 @@ const leaveButton = document.getElementById("leaveButton");
 
 const usernameInput = document.getElementById("usernameInput");
 const usernameArea = document.getElementById("usernameArea");
+
+const registerUsernameInput = document.getElementById("registerUsernameInput");
+
+const registerPasswordInput = document.getElementById("registerPasswordInput");
+
+const registerButton = document.getElementById("registerButton");
+
+const registrationMessage = document.getElementById("registrationMessage");
+
 const videos = document.getElementById("videos");
 const messages = document.getElementById("messages");
 const messageInput = document.getElementById("messageInput");
@@ -57,7 +66,6 @@ function joinRoom() {
     username: username,
   });
 
-  // Ask the server for previously saved chat messages.
   socket.emit("get-chat-history", roomId);
 
   usernameArea.style.display = "none";
@@ -65,12 +73,78 @@ function joinRoom() {
   joinButton.disabled = true;
 
   muteButton.disabled = false;
+
   cameraButton.disabled = false;
+
   screenButton.disabled = false;
+
   leaveButton.disabled = false;
 
   console.log("Joining room:", roomId);
 }
+
+// REGISTER ACCOUNT
+
+registerButton.addEventListener("click", registerAccount);
+
+registerPasswordInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    registerAccount();
+  }
+});
+
+function registerAccount() {
+  const registerUsername = registerUsernameInput.value.trim();
+
+  const password = registerPasswordInput.value;
+
+  if (!registerUsername) {
+    registrationMessage.textContent = "Please enter a username.";
+
+    return;
+  }
+
+  if (!password) {
+    registrationMessage.textContent = "Please enter a password.";
+
+    return;
+  }
+
+  if (password.length < 6) {
+    registrationMessage.textContent = "Password must be at least 6 characters.";
+
+    return;
+  }
+
+  registrationMessage.textContent = "Creating account...";
+
+  registerButton.disabled = true;
+
+  socket.emit("register-user", {
+    username: registerUsername,
+    password: password,
+  });
+}
+
+// REGISTRATION RESULT
+
+socket.on("registration-result", (result) => {
+  registerButton.disabled = false;
+
+  if (result.success) {
+    registrationMessage.textContent = "Account created successfully!";
+
+    registerUsernameInput.value = "";
+
+    registerPasswordInput.value = "";
+
+    // Put the new username into
+    // the room username box.
+    usernameInput.value = result.username;
+  } else {
+    registrationMessage.textContent = result.message;
+  }
+});
 
 // COPY ROOM LINK
 
@@ -120,8 +194,6 @@ function updatePeopleList() {
 
     statusArea.className = "person-status";
 
-    // CAMERA STATUS
-
     if (person.id !== socket.id) {
       const cameraStatus = document.createElement("button");
 
@@ -159,8 +231,6 @@ function updatePeopleList() {
 
       statusArea.appendChild(cameraStatus);
     }
-
-    // MICROPHONE STATUS
 
     const micStatus = document.createElement("span");
 
@@ -1084,19 +1154,25 @@ socket.on("chat-message", ({ username: senderUsername, message }) => {
 // RECEIVE CHAT HISTORY
 
 socket.on("chat-history", (chatHistory) => {
-  // Clear the current chat display
-  // before loading the saved messages.
   messages.innerHTML = "";
 
-  chatHistory.forEach(({ username: senderUsername, message, created_at }) => {
-    const messageElement = createChatMessage(
-      senderUsername,
-      message,
-      created_at,
-    );
+  chatHistory.forEach(
+    ({
+      username: senderUsername,
 
-    messages.appendChild(messageElement);
-  });
+      message,
+
+      created_at,
+    }) => {
+      const messageElement = createChatMessage(
+        senderUsername,
+        message,
+        created_at,
+      );
+
+      messages.appendChild(messageElement);
+    },
+  );
 
   messages.scrollTop = messages.scrollHeight;
 });

@@ -24,6 +24,52 @@
         margin-top: 10px;
       }
 
+      /* ACCOUNT */
+
+      #accountArea {
+        width: 400px;
+        max-width: 90%;
+
+        margin: 20px auto;
+
+        background: #333;
+
+        border-radius: 10px;
+
+        padding: 20px;
+
+        text-align: center;
+      }
+
+      #accountArea h2 {
+        margin-top: 0;
+      }
+
+      #registerUsernameInput,
+      #registerPasswordInput {
+        display: block;
+
+        width: 100%;
+
+        padding: 10px;
+
+        margin: 8px 0;
+
+        border: none;
+
+        border-radius: 6px;
+
+        font-size: 14px;
+      }
+
+      #registrationMessage {
+        min-height: 20px;
+
+        margin-top: 10px;
+
+        font-size: 14px;
+      }
+
       /* VIDEO GRID */
 
       #videos {
@@ -32,12 +78,15 @@
         grid-template-columns: repeat(auto-fit, minmax(300px, 500px));
 
         justify-content: center;
+
         align-items: center;
 
         gap: 15px;
+
         padding: 15px;
 
         width: 100%;
+
         max-width: 1600px;
 
         margin: 0 auto;
@@ -53,6 +102,7 @@
         overflow: hidden;
 
         width: 100%;
+
         max-width: 500px;
 
         aspect-ratio: 16 / 9;
@@ -62,6 +112,7 @@
 
       .video-container video {
         width: 100%;
+
         height: 100%;
 
         object-fit: cover;
@@ -73,6 +124,7 @@
         position: absolute;
 
         bottom: 10px;
+
         left: 10px;
 
         background: rgba(0, 0, 0, 0.7);
@@ -88,14 +140,17 @@
         position: absolute;
 
         top: 8px;
+
         right: 8px;
 
         z-index: 10;
 
         width: 32px;
+
         height: 32px;
 
         padding: 0;
+
         margin: 0;
 
         border-radius: 50%;
@@ -105,6 +160,7 @@
         color: white;
 
         font-size: 18px;
+
         line-height: 32px;
 
         text-align: center;
@@ -118,6 +174,7 @@
 
       #controls {
         text-align: center;
+
         padding: 10px;
       }
 
@@ -135,6 +192,7 @@
 
       button:disabled {
         opacity: 0.5;
+
         cursor: not-allowed;
       }
 
@@ -142,6 +200,7 @@
 
       #peopleBox {
         width: 400px;
+
         max-width: 90%;
 
         margin: 20px auto;
@@ -227,6 +286,7 @@
 
       #chat {
         width: 500px;
+
         max-width: 92%;
 
         margin: 25px auto;
@@ -380,6 +440,10 @@
         #chat {
           width: 95%;
         }
+
+        #accountArea {
+          width: 95%;
+        }
       }
     </style>
   </head>
@@ -392,6 +456,32 @@
 
       <button id="copyLinkButton">🔗 Copy Room Link</button>
     </div>
+
+    <!-- ACCOUNT -->
+
+    <div id="accountArea">
+      <h2>Create Account</h2>
+
+      <input
+        id="registerUsernameInput"
+        type="text"
+        placeholder="Username"
+        autocomplete="username"
+      />
+
+      <input
+        id="registerPasswordInput"
+        type="password"
+        placeholder="Password"
+        autocomplete="new-password"
+      />
+
+      <button id="registerButton">Create Account</button>
+
+      <div id="registrationMessage"></div>
+    </div>
+
+    <!-- JOIN ROOM -->
 
     <div id="usernameArea">
       <input id="usernameInput" placeholder="Enter your username" />

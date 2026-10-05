@@ -1,6 +1,7 @@
 const db = require("./database");
 const express = require("express");
 const http = require("http");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 
 const app = express();
@@ -15,19 +16,87 @@ app.get("/room/:roomId", (req, res) => {
 
 const users = {};
 
+// PASSWORD HASHING
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+
+  return `${salt}:${hash}`;
+}
+
+// REGISTER USER
+
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
+  socket.on("register-user", ({ username, password }) => {
+    if (!username || !password) {
+      socket.emit("registration-result", {
+        success: false,
+        message: "Username and password are required.",
+      });
+
+      return;
+    }
+
+    const existingUser = db
+      .prepare(
+        `
+            SELECT id
+            FROM users
+            WHERE username = ?
+          `,
+      )
+      .get(username);
+
+    if (existingUser) {
+      socket.emit("registration-result", {
+        success: false,
+        message: "That username is already taken.",
+      });
+
+      return;
+    }
+
+    const passwordHash = hashPassword(password);
+
+    const result = db
+      .prepare(
+        `
+            INSERT INTO users (
+              username,
+              password
+            )
+            VALUES (?, ?)
+          `,
+      )
+      .run(username, passwordHash);
+
+    const userId = Number(result.lastInsertRowid);
+
+    console.log(`New user registered: ${username} (ID ${userId})`);
+
+    socket.emit("registration-result", {
+      success: true,
+      message: "Account created successfully.",
+      userId: userId,
+      username: username,
+    });
+  });
+
   // JOIN ROOM
+
   socket.on("join-room", ({ roomId, username }) => {
     socket.join(roomId);
 
     const databaseUser = db
       .prepare(
         `
-        INSERT INTO users (username)
-        VALUES (?)
-      `,
+            INSERT INTO users (username)
+            VALUES (?)
+          `,
       )
       .run(username);
 
@@ -35,9 +104,13 @@ io.on("connection", (socket) => {
 
     users[socket.id] = {
       roomId: roomId,
+
       username: username,
+
       userId: userId,
+
       camera: false,
+
       microphone: false,
     };
 
@@ -51,8 +124,11 @@ io.on("connection", (socket) => {
       })
       .map((id) => ({
         id: id,
+
         username: users[id].username,
+
         camera: users[id].camera,
+
         microphone: users[id].microphone,
       }));
 
@@ -60,8 +136,11 @@ io.on("connection", (socket) => {
 
     socket.to(roomId).emit("user-joined", {
       id: socket.id,
+
       username: username,
+
       camera: false,
+
       microphone: false,
     });
 
@@ -71,20 +150,21 @@ io.on("connection", (socket) => {
   });
 
   // GET CHAT HISTORY
+
   socket.on("get-chat-history", (roomId) => {
     const messages = db
       .prepare(
         `
-        SELECT
-          messages.message,
-          messages.created_at,
-          users.username
-        FROM messages
-        JOIN users
-          ON messages.user_id = users.id
-        WHERE messages.room_id = ?
-        ORDER BY messages.id ASC
-      `,
+            SELECT
+              messages.message,
+              messages.created_at,
+              users.username
+            FROM messages
+            JOIN users
+              ON messages.user_id = users.id
+            WHERE messages.room_id = ?
+            ORDER BY messages.id ASC
+          `,
       )
       .all(roomId);
 
@@ -92,6 +172,7 @@ io.on("connection", (socket) => {
   });
 
   // MEDIA STATE
+
   socket.on("media-state", ({ camera, microphone }) => {
     const user = users[socket.id];
 
@@ -100,6 +181,7 @@ io.on("connection", (socket) => {
     }
 
     user.camera = Boolean(camera);
+
     user.microphone = Boolean(microphone);
 
     console.log(`${user.username} media:`, {
@@ -109,13 +191,17 @@ io.on("connection", (socket) => {
 
     socket.to(user.roomId).emit("media-state", {
       id: socket.id,
+
       username: user.username,
+
       camera: user.camera,
+
       microphone: user.microphone,
     });
   });
 
   // LEAVE ROOM
+
   socket.on("leave-room", () => {
     const user = users[socket.id];
 
@@ -129,6 +215,7 @@ io.on("connection", (socket) => {
 
     socket.to(user.roomId).emit("user-left", {
       id: socket.id,
+
       username: user.username,
     });
 
@@ -140,6 +227,7 @@ io.on("connection", (socket) => {
   });
 
   // CHAT MESSAGE
+
   socket.on("chat-message", ({ roomId, message }) => {
     const user = users[socket.id];
 
@@ -149,52 +237,61 @@ io.on("connection", (socket) => {
 
     db.prepare(
       `
-      INSERT INTO messages (
-        room_id,
-        user_id,
-        message
-      )
-      VALUES (?, ?, ?)
-    `,
+          INSERT INTO messages (
+            room_id,
+            user_id,
+            message
+          )
+          VALUES (?, ?, ?)
+        `,
     ).run(roomId, user.userId, message);
 
     io.to(roomId).emit("chat-message", {
       username: user.username,
+
       message: message,
     });
   });
 
   // OFFER
+
   socket.on("offer", ({ target, offer }) => {
     io.to(target).emit("offer", {
       sender: socket.id,
+
       offer: offer,
     });
   });
 
   // ANSWER
+
   socket.on("answer", ({ target, answer }) => {
     io.to(target).emit("answer", {
       sender: socket.id,
+
       answer: answer,
     });
   });
 
   // ICE CANDIDATE
+
   socket.on("ice-candidate", ({ target, candidate }) => {
     io.to(target).emit("ice-candidate", {
       sender: socket.id,
+
       candidate: candidate,
     });
   });
 
   // DISCONNECT
+
   socket.on("disconnect", () => {
     const user = users[socket.id];
 
     if (user) {
       socket.to(user.roomId).emit("user-left", {
         id: socket.id,
+
         username: user.username,
       });
 
