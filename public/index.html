@@ -40,10 +40,15 @@
         margin: 0;
 
         padding: 0;
+
+        width: 100%;
+
+        overflow-x: hidden;
       }
 
       button,
-      input {
+      input,
+      select {
         font-family: inherit;
       }
 
@@ -203,6 +208,64 @@
         background: #7a2222;
 
         color: white;
+      }
+
+      /* =========================================
+         ROOM SELECTION
+         ========================================= */
+
+      #roomSelection {
+        width: calc(100% - 20px);
+
+        max-width: 450px;
+
+        margin: 15px auto;
+
+        background: #333;
+
+        border-radius: 10px;
+
+        padding: 16px;
+
+        text-align: center;
+      }
+
+      #roomSelection h2 {
+        margin: 0 0 12px;
+
+        font-size: 20px;
+      }
+
+      #roomSelection label {
+        display: block;
+
+        margin-bottom: 8px;
+
+        font-size: 15px;
+
+        font-weight: bold;
+      }
+
+      #roomSelect {
+        width: 100%;
+
+        padding: 12px;
+
+        border: 1px solid #555;
+
+        border-radius: 6px;
+
+        background: #222;
+
+        color: white;
+
+        font-size: 16px;
+
+        cursor: pointer;
+      }
+
+      #roomSelect:focus {
+        outline: 2px solid #777;
       }
 
       /* =========================================
@@ -380,6 +443,8 @@
 
         grid-template-columns: 1fr;
 
+        justify-items: center;
+
         gap: 10px;
 
         padding: 10px;
@@ -399,6 +464,8 @@
         overflow: hidden;
 
         width: 100%;
+
+        max-width: 500px;
 
         aspect-ratio: 16 / 9;
 
@@ -693,6 +760,8 @@
         #videos {
           grid-template-columns: repeat(auto-fit, minmax(300px, 500px));
 
+          justify-content: center;
+
           gap: 15px;
 
           padding: 15px;
@@ -835,6 +904,30 @@
       <button id="logoutButton" style="display: none">Logout</button>
     </div>
 
+    <!-- ROOM SELECTION -->
+
+    <div id="roomSelection">
+      <h2>Choose a Room</h2>
+
+      <label for="roomSelect"> Room Category </label>
+
+      <select id="roomSelect">
+        <option value="general">General</option>
+
+        <option value="gaming">Gaming</option>
+
+        <option value="music">Music</option>
+
+        <option value="movies">Movies</option>
+
+        <option value="sports">Sports</option>
+
+        <option value="technology">Technology</option>
+
+        <option value="random">Random</option>
+      </select>
+    </div>
+
     <!-- JOIN ROOM -->
 
     <div id="usernameArea">
@@ -884,6 +977,16 @@
         <button id="sendButton">Send</button>
       </div>
     </div>
+
+    <script>
+      const roomSelect = document.getElementById("roomSelect");
+
+      roomSelect.addEventListener("change", () => {
+        const selectedRoom = roomSelect.value;
+
+        window.location.href = `/room/${selectedRoom}`;
+      });
+    </script>
 
     <script src="/socket.io/socket.io.js"></script>
 
