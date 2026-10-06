@@ -205,9 +205,12 @@ function joinRoom() {
 
   socket.emit("join-room", {
     roomId: roomId,
+    username: username,
   });
 
-  socket.emit("get-chat-history", roomId);
+  socket.emit("get-chat-history", {
+    roomId: roomId,
+  });
 
   usernameArea.style.display = "none";
 
