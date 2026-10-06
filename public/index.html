@@ -1,4 +1,5 @@
 <!doctype html>
+
 <html>
   <head>
     <title>Video Chat Room</title>
@@ -10,13 +11,17 @@
 
       body {
         font-family: Arial, sans-serif;
+
         background: #222;
+
         color: white;
+
         margin: 0;
       }
 
       #top {
         text-align: center;
+
         padding: 20px;
       }
 
@@ -26,54 +31,10 @@
 
       /* ACCOUNT */
 
-      #accountArea {
-        width: 400px;
-        max-width: 90%;
-
-        margin: 20px auto;
-
-        background: #333;
-
-        border-radius: 10px;
-
-        padding: 20px;
-
-        text-align: center;
-      }
-
-      #accountArea h2 {
-        margin-top: 0;
-      }
-
-      #registerUsernameInput,
-      #registerPasswordInput {
-        display: block;
-
-        width: 100%;
-
-        padding: 10px;
-
-        margin: 8px 0;
-
-        border: none;
-
-        border-radius: 6px;
-
-        font-size: 14px;
-      }
-
-      #registrationMessage {
-        min-height: 20px;
-
-        margin-top: 10px;
-
-        font-size: 14px;
-      }
-
-      /* LOGIN */
-
+      #accountArea,
       #loginArea {
         width: 400px;
+
         max-width: 90%;
 
         margin: 20px auto;
@@ -87,10 +48,13 @@
         text-align: center;
       }
 
+      #accountArea h2,
       #loginArea h2 {
         margin-top: 0;
       }
 
+      #registerUsernameInput,
+      #registerPasswordInput,
       #loginUsernameInput,
       #loginPasswordInput {
         display: block;
@@ -108,12 +72,31 @@
         font-size: 14px;
       }
 
+      #registrationMessage,
       #loginMessage {
         min-height: 20px;
 
         margin-top: 10px;
 
         font-size: 14px;
+      }
+
+      #loginStatus {
+        width: 400px;
+
+        max-width: 90%;
+
+        margin: 15px auto;
+
+        padding: 10px;
+
+        background: #333;
+
+        border-radius: 8px;
+
+        text-align: center;
+
+        font-weight: bold;
       }
 
       /* VIDEO GRID */
@@ -487,10 +470,7 @@
           width: 95%;
         }
 
-        #accountArea {
-          width: 95%;
-        }
-
+        #accountArea,
         #loginArea {
           width: 95%;
         }
@@ -507,7 +487,7 @@
       <button id="copyLinkButton">🔗 Copy Room Link</button>
     </div>
 
-    <!-- ACCOUNT -->
+    <!-- REGISTER -->
 
     <div id="accountArea">
       <h2>Create Account</h2>
@@ -555,6 +535,10 @@
       <div id="loginMessage"></div>
     </div>
 
+    <!-- LOGIN STATUS -->
+
+    <div id="loginStatus">🔴 Not logged in</div>
+
     <!-- JOIN ROOM -->
 
     <div id="usernameArea">
@@ -563,7 +547,7 @@
       <button id="joinButton">Join Room</button>
     </div>
 
-    <!-- PEOPLE IN ROOM -->
+    <!-- PEOPLE -->
 
     <div id="peopleBox">
       <h2 id="peopleTitle">People in Room (0)</h2>

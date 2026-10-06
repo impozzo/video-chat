@@ -1,13 +1,26 @@
 const socket = io();
 
+// BUTTONS
+
 const joinButton = document.getElementById("joinButton");
+
 const muteButton = document.getElementById("muteButton");
+
 const cameraButton = document.getElementById("cameraButton");
+
 const screenButton = document.getElementById("screenButton");
+
 const leaveButton = document.getElementById("leaveButton");
 
+// USERNAME
+
 const usernameInput = document.getElementById("usernameInput");
+
 const usernameArea = document.getElementById("usernameArea");
+
+// REGISTRATION
+
+const accountArea = document.getElementById("accountArea");
 
 const registerUsernameInput = document.getElementById("registerUsernameInput");
 
@@ -17,42 +30,91 @@ const registerButton = document.getElementById("registerButton");
 
 const registrationMessage = document.getElementById("registrationMessage");
 
+// LOGIN
+
+const loginArea = document.getElementById("loginArea");
+
+const loginUsernameInput = document.getElementById("loginUsernameInput");
+
+const loginPasswordInput = document.getElementById("loginPasswordInput");
+
+const loginButton = document.getElementById("loginButton");
+
+const loginMessage = document.getElementById("loginMessage");
+
+const loginStatus = document.getElementById("loginStatus");
+
+// VIDEO
+
 const videos = document.getElementById("videos");
+
+// CHAT
+
 const messages = document.getElementById("messages");
+
 const messageInput = document.getElementById("messageInput");
+
 const sendButton = document.getElementById("sendButton");
+
+// ROOM
+
 const roomInfo = document.getElementById("roomInfo");
+
 const peopleList = document.getElementById("peopleList");
+
 const peopleTitle = document.getElementById("peopleTitle");
+
 const copyLinkButton = document.getElementById("copyLinkButton");
+
+// ROOM ID
 
 const roomId = window.location.pathname.split("/").pop();
 
+roomInfo.textContent = `Room: ${roomId}`;
+
+// ACCOUNT STATE
+
 let username = "";
+
+let loggedIn = false;
+
+let loggedInUserId = null;
+
+// MEDIA
 
 let localStream = new MediaStream();
 
 let peerConnections = {};
+
 let remoteNames = {};
+
 let remoteStreams = {};
 
 let roomPeople = {};
 
 let microphoneOn = false;
+
 let cameraOn = false;
+
 let screenSharing = false;
 
 let screenTrack = null;
+
 let cameraTrack = null;
+
 let microphoneTrack = null;
 
-// ROOM
-
-roomInfo.textContent = `Room: ${roomId}`;
+// JOIN ROOM
 
 joinButton.addEventListener("click", joinRoom);
 
 function joinRoom() {
+  if (!loggedIn) {
+    alert("Please log in before joining the room.");
+
+    return;
+  }
+
   username = usernameInput.value.trim();
 
   if (!username) {
@@ -63,7 +125,6 @@ function joinRoom() {
 
   socket.emit("join-room", {
     roomId: roomId,
-    username: username,
   });
 
   socket.emit("get-chat-history", roomId);
@@ -122,6 +183,7 @@ function registerAccount() {
 
   socket.emit("register-user", {
     username: registerUsername,
+
     password: password,
   });
 }
@@ -132,18 +194,117 @@ socket.on("registration-result", (result) => {
   registerButton.disabled = false;
 
   if (result.success) {
-    registrationMessage.textContent = "Account created successfully!";
+    registrationMessage.textContent =
+      "Account created successfully. Please log in.";
 
     registerUsernameInput.value = "";
 
     registerPasswordInput.value = "";
 
-    // Put the new username into
-    // the room username box.
-    usernameInput.value = result.username;
+    loginUsernameInput.value = result.username;
+
+    loginPasswordInput.focus();
   } else {
     registrationMessage.textContent = result.message;
   }
+});
+
+// LOGIN
+
+loginButton.addEventListener("click", loginAccount);
+
+loginPasswordInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    loginAccount();
+  }
+});
+
+function loginAccount() {
+  const loginUsername = loginUsernameInput.value.trim();
+
+  const password = loginPasswordInput.value;
+
+  if (!loginUsername) {
+    loginMessage.textContent = "Please enter a username.";
+
+    return;
+  }
+
+  if (!password) {
+    loginMessage.textContent = "Please enter a password.";
+
+    return;
+  }
+
+  loginMessage.textContent = "Logging in...";
+
+  loginButton.disabled = true;
+
+  socket.emit("login-user", {
+    username: loginUsername,
+
+    password: password,
+  });
+}
+
+// LOGIN RESULT
+
+socket.on("login-result", (result) => {
+  if (!result.success) {
+    loginButton.disabled = false;
+
+    loggedIn = false;
+
+    loggedInUserId = null;
+
+    loginStatus.textContent = "🔴 Not logged in";
+
+    loginMessage.textContent = result.message;
+
+    return;
+  }
+
+  loggedIn = true;
+
+  loggedInUserId = result.userId;
+
+  username = result.username;
+
+  usernameInput.value = result.username;
+
+  usernameInput.disabled = true;
+
+  loginUsernameInput.disabled = true;
+
+  loginPasswordInput.disabled = true;
+
+  loginButton.disabled = true;
+
+  loginMessage.textContent = "Login successful.";
+
+  loginStatus.textContent = `🟢 Logged in as ${result.username}`;
+
+  // HIDE ACCOUNT SECTIONS AFTER LOGIN
+
+  accountArea.style.display = "none";
+
+  loginArea.style.display = "none";
+
+  console.log(
+    "Logged in:",
+    result.username,
+
+    "Database ID:",
+    result.userId,
+  );
+});
+
+// JOIN ERROR
+
+socket.on("join-error", (result) => {
+  alert(result.message);
+
+  joinButton.disabled = false;
 });
 
 // COPY ROOM LINK
@@ -254,7 +415,7 @@ function updatePeopleList() {
   });
 }
 
-// SOCKET EVENTS
+// ROOM USERS
 
 socket.on("room-users", (users) => {
   console.log("Existing users:", users);
@@ -288,6 +449,8 @@ socket.on("room-users", (users) => {
   updatePeopleList();
 });
 
+// START CONNECTION
+
 socket.on("start-connection", (user) => {
   remoteNames[user.id] = user.username;
 
@@ -308,6 +471,8 @@ socket.on("start-connection", (user) => {
   updatePeopleList();
 });
 
+// USER JOINED
+
 socket.on("user-joined", (user) => {
   console.log(`${user.username} joined`);
 
@@ -326,6 +491,8 @@ socket.on("user-joined", (user) => {
   updatePeopleList();
 });
 
+// USER LEFT
+
 socket.on("user-left", (user) => {
   console.log(`${user.username} left`);
 
@@ -335,6 +502,8 @@ socket.on("user-left", (user) => {
 
   removePeer(user.id);
 });
+
+// MEDIA STATE
 
 socket.on("media-state", (state) => {
   console.log(`${state.username} media state:`, state);
@@ -950,7 +1119,7 @@ function hideRemoteVideo(userId) {
 
 screenButton.addEventListener("click", async () => {
   if (screenSharing) {
-    stopScreenSharing();
+    await stopScreenSharing();
   } else {
     await startScreenSharing();
   }
@@ -1121,6 +1290,7 @@ function createChatMessage(senderUsername, message, createdAt = null) {
 
   timeElement.textContent = messageDate.toLocaleTimeString([], {
     hour: "numeric",
+
     minute: "2-digit",
   });
 
@@ -1143,13 +1313,20 @@ function createChatMessage(senderUsername, message, createdAt = null) {
 
 // RECEIVE NEW CHAT MESSAGE
 
-socket.on("chat-message", ({ username: senderUsername, message }) => {
-  const messageElement = createChatMessage(senderUsername, message);
+socket.on(
+  "chat-message",
+  ({
+    username: senderUsername,
 
-  messages.appendChild(messageElement);
+    message,
+  }) => {
+    const messageElement = createChatMessage(senderUsername, message);
 
-  messages.scrollTop = messages.scrollHeight;
-});
+    messages.appendChild(messageElement);
+
+    messages.scrollTop = messages.scrollHeight;
+  },
+);
 
 // RECEIVE CHAT HISTORY
 
@@ -1177,7 +1354,7 @@ socket.on("chat-history", (chatHistory) => {
   messages.scrollTop = messages.scrollHeight;
 });
 
-// REMOVE PEERS
+// REMOVE PEER
 
 function removePeer(userId) {
   const pc = peerConnections[userId];
@@ -1260,11 +1437,11 @@ leaveButton.addEventListener("click", () => {
 
   usernameArea.style.display = "block";
 
-  usernameInput.disabled = false;
+  usernameInput.disabled = true;
 
   joinButton.disabled = false;
 
-  usernameInput.value = "";
+  usernameInput.value = username;
 
-  console.log("Left room. Ready to join again.");
+  console.log("Left room. Still logged in.");
 });
