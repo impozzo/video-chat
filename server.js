@@ -1,286 +1,618 @@
 const db = require("./database");
-
 const express = require("express");
-
 const http = require("http");
-
 const crypto = require("crypto");
-
 const { Server } = require("socket.io");
+
 
 const app = express();
 
-const server = http.createServer(app);
+const server =
+    http.createServer(app);
 
-const io = new Server(server);
+const io =
+    new Server(server);
 
-app.use(express.static("public"));
 
-app.get("/room/:roomId", (req, res) => {
-  res.sendFile(__dirname + "/public/index.html");
-});
+app.use(
+    express.static("public")
+);
+
+
+app.get(
+    "/room/:roomId",
+    (req, res) => {
+
+        res.sendFile(
+            __dirname +
+            "/public/index.html"
+        );
+
+    }
+);
+
 
 const users = {};
 
-// PASSWORD HASHING
+
+// PASSWORD FUNCTIONS
 
 function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
 
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+    const salt =
+        crypto
+            .randomBytes(16)
+            .toString("hex");
 
-  return `${salt}:${hash}`;
+
+    const hash =
+        crypto
+            .scryptSync(
+                password,
+                salt,
+                64
+            )
+            .toString("hex");
+
+
+    return `${salt}:${hash}`;
+
 }
 
-// PASSWORD VERIFICATION
 
-function verifyPassword(password, storedPassword) {
-  if (!storedPassword) {
-    return false;
-  }
+function verifyPassword(
+    password,
+    storedPassword
+) {
 
-  const parts = storedPassword.split(":");
+    const parts =
+        storedPassword.split(":");
 
-  if (parts.length !== 2) {
-    return false;
-  }
 
-  const salt = parts[0];
-
-  const storedHash = parts[1];
-
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-
-  return crypto.timingSafeEqual(
-    Buffer.from(hash, "hex"),
-    Buffer.from(storedHash, "hex"),
-  );
-}
-
-// SOCKET CONNECTION
-
-io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
-  // REGISTER
-
-  socket.on("register-user", ({ username, password }) => {
-    username = username?.trim();
-
-    if (!username || !password) {
-      socket.emit("registration-result", {
-        success: false,
-
-        message: "Username and password are required.",
-      });
-
-      return;
+    if (parts.length !== 2) {
+        return false;
     }
 
-    if (password.length < 6) {
-      socket.emit("registration-result", {
-        success: false,
 
-        message: "Password must be at least 6 characters.",
-      });
+    const salt =
+        parts[0];
 
-      return;
-    }
+    const storedHash =
+        parts[1];
 
-    const existingUser = db
-      .prepare(
-        `
-                        SELECT id
-                        FROM users
-                        WHERE username = ?
-                    `,
-      )
-      .get(username);
 
-    if (existingUser) {
-      socket.emit("registration-result", {
-        success: false,
+    const hash =
+        crypto
+            .scryptSync(
+                password,
+                salt,
+                64
+            )
+            .toString("hex");
 
-        message: "That username is already taken.",
-      });
 
-      return;
-    }
-
-    const passwordHash = hashPassword(password);
-
-    const result = db
-      .prepare(
-        `
-                        INSERT INTO users (
-                            username,
-                            password
-                        )
-                        VALUES (?, ?)
-                    `,
-      )
-      .run(username, passwordHash);
-
-    const userId = Number(result.lastInsertRowid);
-
-    console.log(`New user registered: ${username} (ID ${userId})`);
-
-    socket.emit("registration-result", {
-      success: true,
-
-      message: "Account created successfully.",
-
-      userId: userId,
-
-      username: username,
-    });
-  });
-
-  // LOGIN
-
-  socket.on("login-user", ({ username, password }) => {
-    username = username?.trim();
-
-    if (!username || !password) {
-      socket.emit("login-result", {
-        success: false,
-
-        message: "Username and password are required.",
-      });
-
-      return;
-    }
-
-    const user = db
-      .prepare(
-        `
-                        SELECT
-                            id,
-                            username,
-                            password
-                        FROM users
-                        WHERE username = ?
-                    `,
-      )
-      .get(username);
-
-    if (!user) {
-      socket.emit("login-result", {
-        success: false,
-
-        message: "Invalid username or password.",
-      });
-
-      return;
-    }
-
-    if (!verifyPassword(password, user.password)) {
-      socket.emit("login-result", {
-        success: false,
-
-        message: "Invalid username or password.",
-      });
-
-      return;
-    }
-
-    socket.authenticatedUserId = user.id;
-
-    socket.authenticatedUsername = user.username;
-
-    console.log(`${user.username} logged in`);
-
-    socket.emit("login-result", {
-      success: true,
-
-      userId: user.id,
-
-      username: user.username,
-    });
-  });
-
-  // JOIN ROOM
-
-  socket.on("join-room", ({ roomId }) => {
-    if (!socket.authenticatedUserId) {
-      socket.emit("join-error", {
-        message: "Please log in before joining the room.",
-      });
-
-      return;
-    }
-
-    const username = socket.authenticatedUsername;
-
-    const userId = socket.authenticatedUserId;
-
-    socket.join(roomId);
-
-    /*
-     * IMPORTANT:
-     *
-     * We DO NOT insert another
-     * user into the database here.
-     *
-     * We use the existing account.
-     */
-
-    users[socket.id] = {
-      roomId: roomId,
-
-      username: username,
-
-      userId: userId,
-
-      camera: false,
-
-      microphone: false,
-    };
-
-    console.log(
-      `${username} joined room ${roomId} with database user ID ${userId}`,
+    return crypto.timingSafeEqual(
+        Buffer.from(hash, "hex"),
+        Buffer.from(storedHash, "hex")
     );
 
-    const roomUsers = Object.keys(users)
-      .filter((id) => {
-        return users[id].roomId === roomId && id !== socket.id;
-      })
-      .map((id) => {
-        return {
-          id: id,
+}
 
-          username: users[id].username,
 
-          camera: users[id].camera,
+// SESSION MANAGEMENT
 
-          microphone: users[id].microphone,
-        };
-      });
+function hashSessionToken(token) {
 
-    socket.emit("room-users", roomUsers);
+    return crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
 
-    socket.to(roomId).emit("user-joined", {
-      id: socket.id,
+}
 
-      username: username,
 
-      camera: false,
+function createSession(userId) {
 
-      microphone: false,
-    });
+    const token =
+        crypto
+            .randomBytes(32)
+            .toString("hex");
 
-    roomUsers.forEach((user) => {
-      socket.emit("start-connection", user);
-    });
-  });
 
-  // CHAT HISTORY
+    const tokenHash =
+        hashSessionToken(token);
 
-  socket.on("get-chat-history", (roomId) => {
-    const messages = db
-      .prepare(
-        `
+
+    db.prepare(`
+        INSERT INTO sessions
+        (user_id, token_hash, expires_at)
+        VALUES (?, ?, datetime('now', '+30 days'))
+    `).run(
+        userId,
+        tokenHash
+    );
+
+
+    return token;
+
+}
+
+
+function getSessionUser(token) {
+
+    if (!token) {
+        return null;
+    }
+
+
+    return db.prepare(`
+        SELECT
+            users.id,
+            users.username
+        FROM sessions
+        JOIN users
+            ON sessions.user_id = users.id
+        WHERE sessions.token_hash = ?
+        AND sessions.expires_at > datetime('now')
+    `).get(
+        hashSessionToken(token)
+    );
+
+}
+
+
+function deleteSession(token) {
+
+    if (!token) {
+        return;
+    }
+
+
+    db.prepare(`
+        DELETE FROM sessions
+        WHERE token_hash = ?
+    `).run(
+        hashSessionToken(token)
+    );
+
+}
+
+
+// SOCKET.IO
+
+io.on(
+    "connection",
+    (socket) => {
+
+        console.log(
+            "User connected:",
+            socket.id
+        );
+
+
+        // REGISTER
+
+        socket.on(
+            "register-user",
+            ({ username, password }) => {
+
+                username =
+                    username.trim();
+
+
+                if (!username || !password) {
+
+                    socket.emit(
+                        "register-result",
+                        {
+                            success: false,
+                            message:
+                                "Username and password are required."
+                        }
+                    );
+
+                    return;
+
+                }
+
+
+                try {
+
+                    const passwordHash =
+                        hashPassword(password);
+
+
+                    const result =
+                        db.prepare(`
+                            INSERT INTO users
+                            (username, password)
+                            VALUES (?, ?)
+                        `).run(
+                            username,
+                            passwordHash
+                        );
+
+
+                    console.log(
+                        `User registered: ${username}`
+                    );
+
+
+                    socket.emit(
+                        "register-result",
+                        {
+                            success: true,
+                            userId:
+                                result.lastInsertRowid,
+                            username:
+                                username
+                        }
+                    );
+
+                } catch (error) {
+
+                    if (
+                        error.message.includes(
+                            "UNIQUE constraint failed"
+                        )
+                    ) {
+
+                        socket.emit(
+                            "register-result",
+                            {
+                                success: false,
+                                message:
+                                    "Username already exists."
+                            }
+                        );
+
+                    } else {
+
+                        console.error(
+                            "Registration error:",
+                            error
+                        );
+
+
+                        socket.emit(
+                            "register-result",
+                            {
+                                success: false,
+                                message:
+                                    "Registration failed."
+                            }
+                        );
+
+                    }
+
+                }
+
+            }
+        );
+
+
+        // LOGIN
+
+        socket.on(
+            "login-user",
+            ({ username, password }) => {
+
+                username =
+                    username.trim();
+
+
+                const user =
+                    db.prepare(`
+                        SELECT *
+                        FROM users
+                        WHERE username = ?
+                    `).get(
+                        username
+                    );
+
+
+                if (!user) {
+
+                    socket.emit(
+                        "login-result",
+                        {
+                            success: false,
+                            message:
+                                "Invalid username or password."
+                        }
+                    );
+
+                    return;
+
+                }
+
+
+                if (
+                    !verifyPassword(
+                        password,
+                        user.password
+                    )
+                ) {
+
+                    socket.emit(
+                        "login-result",
+                        {
+                            success: false,
+                            message:
+                                "Invalid username or password."
+                        }
+                    );
+
+                    return;
+
+                }
+
+
+                // CREATE SESSION
+
+                const sessionToken =
+                    createSession(
+                        user.id
+                    );
+
+
+                socket.sessionToken =
+                    sessionToken;
+
+
+                socket.authenticatedUserId =
+                    user.id;
+
+
+                socket.authenticatedUsername =
+                    user.username;
+
+
+                console.log(
+                    `User logged in: ${user.username}`
+                );
+
+
+                socket.emit(
+                    "login-result",
+                    {
+                        success: true,
+                        userId:
+                            user.id,
+                        username:
+                            user.username,
+                        sessionToken:
+                            sessionToken
+                    }
+                );
+
+            }
+        );
+
+
+        // RESTORE SESSION
+
+        socket.on(
+            "restore-session",
+            ({ token }) => {
+
+                const user =
+                    getSessionUser(token);
+
+
+                if (!user) {
+
+                    socket.emit(
+                        "session-result",
+                        {
+                            success: false
+                        }
+                    );
+
+                    return;
+
+                }
+
+
+                socket.sessionToken =
+                    token;
+
+
+                socket.authenticatedUserId =
+                    user.id;
+
+
+                socket.authenticatedUsername =
+                    user.username;
+
+
+                console.log(
+                    `Session restored: ${user.username}`
+                );
+
+
+                socket.emit(
+                    "session-result",
+                    {
+                        success: true,
+                        userId:
+                            user.id,
+                        username:
+                            user.username
+                    }
+                );
+
+            }
+        );
+
+
+        // LOGOUT
+
+        socket.on(
+            "logout-user",
+            () => {
+
+                if (socket.sessionToken) {
+
+                    deleteSession(
+                        socket.sessionToken
+                    );
+
+                }
+
+
+                const user =
+                    users[socket.id];
+
+
+                if (user) {
+
+                    console.log(
+                        `${user.username} logged out from room ${user.roomId}`
+                    );
+
+
+                    socket.to(
+                        user.roomId
+                    ).emit(
+                        "user-left",
+                        {
+                            id:
+                                socket.id,
+                            username:
+                                user.username
+                        }
+                    );
+
+
+                    delete users[socket.id];
+
+
+                    socket.leave(
+                        user.roomId
+                    );
+
+                } else {
+
+                    console.log(
+                        `${socket.authenticatedUsername || "User"} logged out`
+                    );
+
+                }
+
+
+                socket.sessionToken =
+                    null;
+
+
+                socket.authenticatedUserId =
+                    null;
+
+
+                socket.authenticatedUsername =
+                    null;
+
+            }
+        );
+
+
+        // JOIN ROOM
+
+        socket.on(
+            "join-room",
+            ({ roomId, username }) => {
+
+                if (
+                    !socket.authenticatedUserId
+                ) {
+
+                    socket.emit(
+                        "join-error",
+                        {
+                            message:
+                                "You must be logged in."
+                        }
+                    );
+
+                    return;
+
+                }
+
+
+                const existingUsers =
+                    Object.entries(users)
+                        .filter(
+                            ([id, user]) =>
+                                user.roomId === roomId
+                        )
+                        .map(
+                            ([id, user]) => ({
+                                id: id,
+                                username:
+                                    user.username
+                            })
+                        );
+
+
+                users[socket.id] = {
+                    roomId:
+                        roomId,
+                    username:
+                        username,
+                    userId:
+                        socket.authenticatedUserId
+                };
+
+
+                socket.join(
+                    roomId
+                );
+
+
+                console.log(
+                    `${username} joined room ${roomId}`
+                );
+
+
+                socket.emit(
+                    "room-users",
+                    existingUsers
+                );
+
+
+                socket.to(
+                    roomId
+                ).emit(
+                    "user-joined",
+                    {
+                        id:
+                            socket.id,
+                        username:
+                            username
+                    }
+                );
+
+            }
+        );
+
+
+        // CHAT HISTORY
+
+        socket.on(
+            "get-chat-history",
+            ({ roomId }) => {
+
+                if (
+                    !socket.authenticatedUserId
+                ) {
+                    return;
+                }
+
+
+                const history =
+                    db.prepare(`
                         SELECT
+                            messages.id,
                             messages.message,
                             messages.created_at,
                             users.username
@@ -289,146 +621,284 @@ io.on("connection", (socket) => {
                             ON messages.user_id = users.id
                         WHERE messages.room_id = ?
                         ORDER BY messages.id ASC
-                    `,
-      )
-      .all(roomId);
+                    `).all(
+                        roomId
+                    );
 
-    socket.emit("chat-history", messages);
-  });
 
-  // MEDIA STATE
+                socket.emit(
+                    "chat-history",
+                    history
+                );
 
-  socket.on("media-state", ({ camera, microphone }) => {
-    const user = users[socket.id];
+            }
+        );
 
-    if (!user) {
-      return;
-    }
 
-    user.camera = Boolean(camera);
+        // MEDIA STATE
 
-    user.microphone = Boolean(microphone);
+        socket.on(
+            "media-state",
+            ({ camera, microphone }) => {
 
-    socket.to(user.roomId).emit("media-state", {
-      id: socket.id,
+                const user =
+                    users[socket.id];
 
-      username: user.username,
 
-      camera: user.camera,
+                if (!user) {
+                    return;
+                }
 
-      microphone: user.microphone,
-    });
-  });
 
-  // LEAVE ROOM
+                socket.to(
+                    user.roomId
+                ).emit(
+                    "media-state",
+                    {
+                        id:
+                            socket.id,
+                        username:
+                            user.username,
+                        camera:
+                            camera,
+                        microphone:
+                            microphone
+                    }
+                );
 
-  socket.on("leave-room", () => {
-    const user = users[socket.id];
+            }
+        );
 
-    if (!user) {
-      return;
-    }
 
-    console.log(`${user.username} left room ${user.roomId}`);
+        // LEAVE ROOM
 
-    socket.to(user.roomId).emit("user-left", {
-      id: socket.id,
+        socket.on(
+            "leave-room",
+            () => {
 
-      username: user.username,
-    });
+                const user =
+                    users[socket.id];
 
-    delete users[socket.id];
 
-    socket.leave(user.roomId);
+                if (!user) {
+                    return;
+                }
 
-    /*
-     * IMPORTANT:
-     *
-     * Leaving the room does NOT
-     * log the account out.
-     */
-  });
 
-  // CHAT MESSAGE
+                console.log(
+                    `${user.username} left room ${user.roomId}`
+                );
 
-  socket.on("chat-message", ({ roomId, message }) => {
-    const user = users[socket.id];
 
-    if (!user) {
-      return;
-    }
+                socket.to(
+                    user.roomId
+                ).emit(
+                    "user-left",
+                    {
+                        id:
+                            socket.id,
+                        username:
+                            user.username
+                    }
+                );
 
-    db.prepare(
-      `
-                    INSERT INTO messages (
-                        room_id,
-                        user_id,
-                        message
-                    )
+
+                socket.leave(
+                    user.roomId
+                );
+
+
+                delete users[
+                    socket.id
+                ];
+
+            }
+        );
+
+
+        // CHAT MESSAGE
+
+        socket.on(
+            "chat-message",
+            ({ roomId, message }) => {
+
+                if (
+                    !socket.authenticatedUserId
+                ) {
+                    return;
+                }
+
+
+                const user =
+                    users[socket.id];
+
+
+                if (!user) {
+                    return;
+                }
+
+
+                message =
+                    message.trim();
+
+
+                if (!message) {
+                    return;
+                }
+
+
+                db.prepare(`
+                    INSERT INTO messages
+                    (room_id, user_id, message)
                     VALUES (?, ?, ?)
-                `,
-    ).run(roomId, user.userId, message);
+                `).run(
+                    roomId,
+                    socket.authenticatedUserId,
+                    message
+                );
 
-    io.to(roomId).emit("chat-message", {
-      username: user.username,
 
-      message: message,
-    });
-  });
+                io.to(
+                    roomId
+                ).emit(
+                    "chat-message",
+                    {
+                        username:
+                            socket.authenticatedUsername,
+                        message:
+                            message
+                    }
+                );
 
-  // OFFER
+            }
+        );
 
-  socket.on("offer", ({ target, offer }) => {
-    io.to(target).emit("offer", {
-      sender: socket.id,
 
-      offer: offer,
-    });
-  });
+        // OFFER
 
-  // ANSWER
+        socket.on(
+            "offer",
+            ({ target, offer }) => {
 
-  socket.on("answer", ({ target, answer }) => {
-    io.to(target).emit("answer", {
-      sender: socket.id,
+                socket.to(
+                    target
+                ).emit(
+                    "offer",
+                    {
+                        sender:
+                            socket.id,
+                        offer:
+                            offer
+                    }
+                );
 
-      answer: answer,
-    });
-  });
+            }
+        );
 
-  // ICE CANDIDATE
 
-  socket.on("ice-candidate", ({ target, candidate }) => {
-    io.to(target).emit("ice-candidate", {
-      sender: socket.id,
+        // ANSWER
 
-      candidate: candidate,
-    });
-  });
+        socket.on(
+            "answer",
+            ({ target, answer }) => {
 
-  // DISCONNECT
+                socket.to(
+                    target
+                ).emit(
+                    "answer",
+                    {
+                        sender:
+                            socket.id,
+                        answer:
+                            answer
+                    }
+                );
 
-  socket.on("disconnect", () => {
-    const user = users[socket.id];
+            }
+        );
 
-    if (user) {
-      socket.to(user.roomId).emit("user-left", {
-        id: socket.id,
 
-        username: user.username,
-      });
+        // ICE CANDIDATE
 
-      console.log(`${user.username} disconnected from room ${user.roomId}`);
+        socket.on(
+            "ice-candidate",
+            ({ target, candidate }) => {
 
-      delete users[socket.id];
+                socket.to(
+                    target
+                ).emit(
+                    "ice-candidate",
+                    {
+                        sender:
+                            socket.id,
+                        candidate:
+                            candidate
+                    }
+                );
+
+            }
+        );
+
+
+        // DISCONNECT
+
+        socket.on(
+            "disconnect",
+            () => {
+
+                const user =
+                    users[socket.id];
+
+
+                if (user) {
+
+                    console.log(
+                        `${user.username} disconnected from room ${user.roomId}`
+                    );
+
+
+                    socket.to(
+                        user.roomId
+                    ).emit(
+                        "user-left",
+                        {
+                            id:
+                                socket.id,
+                            username:
+                                user.username
+                        }
+                    );
+
+
+                    delete users[
+                        socket.id
+                    ];
+
+                }
+
+
+                console.log(
+                    "User disconnected:",
+                    socket.id
+                );
+
+            }
+        );
+
     }
+);
 
-    console.log("Socket disconnected:", socket.id);
-  });
-});
 
 const PORT = 3000;
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+
+server.listen(
+    PORT,
+    () => {
+
+        console.log(
+            `Server running at http://localhost:${PORT}`
+        );
+
+    }
+);

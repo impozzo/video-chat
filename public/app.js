@@ -12,6 +12,8 @@ const screenButton = document.getElementById("screenButton");
 
 const leaveButton = document.getElementById("leaveButton");
 
+const logoutButton = document.getElementById("logoutButton");
+
 // USERNAME
 
 const usernameInput = document.getElementById("usernameInput");
@@ -43,6 +45,8 @@ const loginButton = document.getElementById("loginButton");
 const loginMessage = document.getElementById("loginMessage");
 
 const loginStatus = document.getElementById("loginStatus");
+
+const loginStatusText = document.getElementById("loginStatusText");
 
 // VIDEO
 
@@ -80,6 +84,8 @@ let loggedIn = false;
 
 let loggedInUserId = null;
 
+let sessionToken = localStorage.getItem("sessionToken");
+
 // MEDIA
 
 let localStream = new MediaStream();
@@ -104,6 +110,80 @@ let cameraTrack = null;
 
 let microphoneTrack = null;
 
+// RESTORE SESSION
+
+socket.on("connect", () => {
+  const savedToken = localStorage.getItem("sessionToken");
+
+  if (!savedToken) {
+    return;
+  }
+
+  sessionToken = savedToken;
+
+  socket.emit("restore-session", {
+    token: savedToken,
+  });
+});
+
+// SESSION RESTORED
+
+socket.on("session-result", (result) => {
+  if (!result.success) {
+    localStorage.removeItem("sessionToken");
+
+    sessionToken = null;
+
+    loggedIn = false;
+
+    loggedInUserId = null;
+
+    username = "";
+
+    loginStatusText.textContent = "🔴 Not logged in";
+
+    logoutButton.style.display = "none";
+
+    accountArea.style.display = "block";
+
+    loginArea.style.display = "block";
+
+    usernameArea.style.display = "block";
+
+    usernameInput.value = "";
+
+    usernameInput.disabled = true;
+
+    return;
+  }
+
+  loggedIn = true;
+
+  loggedInUserId = result.userId;
+
+  username = result.username;
+
+  usernameInput.value = result.username;
+
+  usernameInput.disabled = true;
+
+  loginUsernameInput.disabled = true;
+
+  loginPasswordInput.disabled = true;
+
+  loginButton.disabled = true;
+
+  loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
+
+  logoutButton.style.display = "inline-block";
+
+  accountArea.style.display = "none";
+
+  loginArea.style.display = "none";
+
+  console.log("Session restored:", result.username);
+});
+
 // JOIN ROOM
 
 joinButton.addEventListener("click", joinRoom);
@@ -118,7 +198,7 @@ function joinRoom() {
   username = usernameInput.value.trim();
 
   if (!username) {
-    alert("Please enter a username.");
+    alert("Please enter your username.");
 
     return;
   }
@@ -257,7 +337,7 @@ socket.on("login-result", (result) => {
 
     loggedInUserId = null;
 
-    loginStatus.textContent = "🔴 Not logged in";
+    loginStatusText.textContent = "🔴 Not logged in";
 
     loginMessage.textContent = result.message;
 
@@ -282,13 +362,19 @@ socket.on("login-result", (result) => {
 
   loginMessage.textContent = "Login successful.";
 
-  loginStatus.textContent = `🟢 Logged in as ${result.username}`;
+  loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
 
-  // HIDE ACCOUNT SECTIONS AFTER LOGIN
+  logoutButton.style.display = "inline-block";
 
   accountArea.style.display = "none";
 
   loginArea.style.display = "none";
+
+  if (result.sessionToken) {
+    sessionToken = result.sessionToken;
+
+    localStorage.setItem("sessionToken", result.sessionToken);
+  }
 
   console.log(
     "Logged in:",
@@ -297,6 +383,82 @@ socket.on("login-result", (result) => {
     "Database ID:",
     result.userId,
   );
+});
+
+// LOGOUT
+
+logoutButton.addEventListener("click", () => {
+  if (!leaveButton.disabled) {
+    leaveButton.click();
+  }
+
+  if (cameraTrack) {
+    cameraTrack.stop();
+
+    cameraTrack = null;
+  }
+
+  if (microphoneTrack) {
+    microphoneTrack.stop();
+
+    microphoneTrack = null;
+  }
+
+  if (screenTrack) {
+    screenTrack.stop();
+
+    screenTrack = null;
+  }
+
+  localStream = new MediaStream();
+
+  cameraOn = false;
+
+  microphoneOn = false;
+
+  screenSharing = false;
+
+  messages.innerHTML = "";
+
+  socket.emit("logout-user");
+
+  localStorage.removeItem("sessionToken");
+
+  sessionToken = null;
+
+  loggedIn = false;
+
+  loggedInUserId = null;
+
+  username = "";
+
+  loginUsernameInput.value = "";
+
+  loginPasswordInput.value = "";
+
+  loginUsernameInput.disabled = false;
+
+  loginPasswordInput.disabled = false;
+
+  loginButton.disabled = false;
+
+  loginMessage.textContent = "";
+
+  loginStatusText.textContent = "🔴 Not logged in";
+
+  logoutButton.style.display = "none";
+
+  accountArea.style.display = "block";
+
+  loginArea.style.display = "block";
+
+  usernameArea.style.display = "block";
+
+  usernameInput.value = "";
+
+  usernameInput.disabled = true;
+
+  console.log("Logged out.");
 });
 
 // JOIN ERROR
