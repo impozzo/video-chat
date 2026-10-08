@@ -4,11 +4,9 @@ const socket = io();
 // BUTTONS
 // =========================================
 
-const joinButton = document.getElementById("joinButton");
 const muteButton = document.getElementById("muteButton");
 const cameraButton = document.getElementById("cameraButton");
 const screenButton = document.getElementById("screenButton");
-const leaveButton = document.getElementById("leaveButton");
 const logoutButton = document.getElementById("logoutButton");
 
 const topLoginButton = document.getElementById("topLoginButton");
@@ -16,14 +14,6 @@ const topLoginButton = document.getElementById("topLoginButton");
 const topCreateAccountButton = document.getElementById(
   "topCreateAccountButton",
 );
-
-// =========================================
-// USERNAME
-// =========================================
-
-const usernameInput = document.getElementById("usernameInput");
-
-const usernameArea = document.getElementById("usernameArea");
 
 // =========================================
 // REGISTRATION
@@ -89,34 +79,45 @@ const watchingTitle = document.getElementById("watchingTitle");
 
 const copyLinkButton = document.getElementById("copyLinkButton");
 
-const roomSelect = document.getElementById("roomSelect");
+// =========================================
+// ROOM COUNTS
+// =========================================
+
+const roomRows = document.querySelectorAll(".room-row");
+
+socket.on("room-counts", (counts) => {
+  roomRows.forEach((roomRow) => {
+    const roomName = roomRow.dataset.room;
+
+    const usersElement = roomRow.querySelector(".room-users");
+
+    const count = counts[roomName] || 0;
+
+    if (usersElement) {
+      usersElement.textContent = count;
+    }
+  });
+
+  if (roomInfo) {
+    const currentCount = counts[roomId] || 0;
+
+    const peopleWord = currentCount === 1 ? "person" : "people";
+
+    roomInfo.textContent = `Room: ${roomId} — ${currentCount} ${peopleWord}`;
+  }
+});
 
 // =========================================
 // ROOM ID
 // =========================================
 
-const roomId = window.location.pathname.split("/").pop();
+const pathParts = window.location.pathname.split("/").filter(Boolean);
+
+const roomId =
+  pathParts[0] === "room" && pathParts[1] ? pathParts[1] : "general";
 
 if (roomInfo) {
   roomInfo.textContent = `Room: ${roomId}`;
-}
-
-// =========================================
-// ROOM SELECTION
-// =========================================
-
-if (roomSelect) {
-  roomSelect.value = roomId;
-
-  roomSelect.addEventListener("change", () => {
-    const selectedRoom = roomSelect.value;
-
-    if (selectedRoom === roomId) {
-      return;
-    }
-
-    window.location.href = `/room/${encodeURIComponent(selectedRoom)}`;
-  });
 }
 
 // =========================================
@@ -124,7 +125,9 @@ if (roomSelect) {
 // =========================================
 
 let username = "";
+
 let loggedIn = false;
+
 let loggedInUserId = null;
 
 // IMPORTANT:
@@ -141,17 +144,25 @@ let sessionToken = sessionStorage.getItem("sessionToken");
 let localStream = new MediaStream();
 
 let peerConnections = {};
+
 let remoteNames = {};
+
 let remoteStreams = {};
+
 let roomPeople = {};
+
 let cameraWatchers = {};
 
 let microphoneOn = false;
+
 let cameraOn = false;
+
 let screenSharing = false;
 
 let screenTrack = null;
+
 let cameraTrack = null;
+
 let microphoneTrack = null;
 
 // =========================================
@@ -241,11 +252,39 @@ function openAccount() {
 }
 
 // =========================================
+// LOGIN / LOGOUT BUTTON DISPLAY
+// =========================================
+
+function showLoggedInButtons() {
+  if (topLoginButton) {
+    topLoginButton.style.display = "none";
+  }
+
+  if (logoutButton) {
+    logoutButton.style.display = "inline-block";
+  }
+}
+
+function showLoggedOutButtons() {
+  if (logoutButton) {
+    logoutButton.style.display = "none";
+  }
+
+  if (topLoginButton) {
+    topLoginButton.style.display = "inline-block";
+    topLoginButton.textContent = "Login";
+  }
+}
+
+// =========================================
 // HIDE ACCOUNT FORMS WHEN PAGE LOADS
 // =========================================
 
 closeLogin();
+
 closeAccount();
+
+showLoggedOutButtons();
 
 // =========================================
 // TOP LOGIN BUTTON
@@ -312,30 +351,22 @@ socket.on("session-result", (result) => {
     sessionStorage.removeItem("sessionToken");
 
     sessionToken = null;
+
     loggedIn = false;
+
     loggedInUserId = null;
+
     username = "";
 
     if (loginStatusText) {
       loginStatusText.textContent = "🔴 Not logged in";
     }
 
-    if (logoutButton) {
-      logoutButton.style.display = "none";
-    }
+    showLoggedOutButtons();
 
     closeLogin();
+
     closeAccount();
-
-    if (usernameArea) {
-      usernameArea.style.display = "block";
-    }
-
-    if (usernameInput) {
-      usernameInput.value = "";
-
-      usernameInput.disabled = true;
-    }
 
     return;
   }
@@ -345,12 +376,6 @@ socket.on("session-result", (result) => {
   loggedInUserId = result.userId;
 
   username = result.username;
-
-  if (usernameInput) {
-    usernameInput.value = result.username;
-
-    usernameInput.disabled = true;
-  }
 
   if (loginUsernameInput) {
     loginUsernameInput.disabled = true;
@@ -368,36 +393,31 @@ socket.on("session-result", (result) => {
     loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
   }
 
-  if (logoutButton) {
-    logoutButton.style.display = "inline-block";
-  }
+  // Login disappears and Logout takes its exact place.
+  showLoggedInButtons();
 
   closeLogin();
+
   closeAccount();
 
   console.log("Session restored:", result.username);
+
+  // Logged-in users always start in the current room.
+  joinRoom();
 });
 
 // =========================================
-// JOIN ROOM
+// ROOM MEMBERSHIP
 // =========================================
 
-if (joinButton) {
-  joinButton.addEventListener("click", joinRoom);
-}
+let inRoom = false;
 
 function joinRoom() {
-  if (!loggedIn) {
-    alert("Please log in before joining the room.");
-
+  if (!loggedIn || inRoom) {
     return;
   }
 
-  username = usernameInput.value.trim();
-
   if (!username) {
-    alert("Please enter your username.");
-
     return;
   }
 
@@ -411,19 +431,21 @@ function joinRoom() {
     roomId: roomId,
   });
 
-  usernameArea.style.display = "none";
+  inRoom = true;
 
-  joinButton.disabled = true;
+  if (muteButton) {
+    muteButton.disabled = false;
+  }
 
-  muteButton.disabled = false;
+  if (cameraButton) {
+    cameraButton.disabled = false;
+  }
 
-  cameraButton.disabled = false;
+  if (screenButton) {
+    screenButton.disabled = false;
+  }
 
-  screenButton.disabled = false;
-
-  leaveButton.disabled = false;
-
-  console.log("Joining room:", roomId);
+  console.log("Joined room:", roomId);
 }
 
 // =========================================
@@ -561,11 +583,14 @@ socket.on("login-result", (result) => {
     loginButton.disabled = false;
 
     loggedIn = false;
+
     loggedInUserId = null;
 
     if (loginStatusText) {
       loginStatusText.textContent = "🔴 Not logged in";
     }
+
+    showLoggedOutButtons();
 
     loginMessage.textContent = result.message;
 
@@ -578,10 +603,6 @@ socket.on("login-result", (result) => {
 
   username = result.username;
 
-  usernameInput.value = result.username;
-
-  usernameInput.disabled = true;
-
   loginUsernameInput.disabled = true;
 
   loginPasswordInput.disabled = true;
@@ -592,9 +613,11 @@ socket.on("login-result", (result) => {
 
   loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
 
-  logoutButton.style.display = "inline-block";
+  // Login disappears and Logout takes its place.
+  showLoggedInButtons();
 
   closeLogin();
+
   closeAccount();
 
   if (result.sessionToken) {
@@ -604,6 +627,9 @@ socket.on("login-result", (result) => {
   }
 
   console.log("Logged in:", result.username, "Database ID:", result.userId);
+
+  // A successful login always places the user in the current room.
+  joinRoom();
 });
 
 // =========================================
@@ -612,22 +638,27 @@ socket.on("login-result", (result) => {
 
 if (logoutButton) {
   logoutButton.addEventListener("click", () => {
-    if (!leaveButton.disabled) {
-      leaveButton.click();
+    if (inRoom) {
+      socket.emit("leave-room");
+
+      inRoom = false;
     }
 
     if (cameraTrack) {
       cameraTrack.stop();
+
       cameraTrack = null;
     }
 
     if (microphoneTrack) {
       microphoneTrack.stop();
+
       microphoneTrack = null;
     }
 
     if (screenTrack) {
       screenTrack.stop();
+
       screenTrack = null;
     }
 
@@ -673,16 +704,12 @@ if (logoutButton) {
 
     loginStatusText.textContent = "🔴 Not logged in";
 
-    logoutButton.style.display = "none";
+    // Logout disappears and Login returns to the same button position.
+    showLoggedOutButtons();
 
     closeLogin();
+
     closeAccount();
-
-    usernameArea.style.display = "block";
-
-    usernameInput.value = "";
-
-    usernameInput.disabled = true;
 
     console.log("Logged out.");
   });
@@ -695,7 +722,19 @@ if (logoutButton) {
 socket.on("join-error", (result) => {
   alert(result.message);
 
-  joinButton.disabled = false;
+  inRoom = false;
+
+  if (muteButton) {
+    muteButton.disabled = true;
+  }
+
+  if (cameraButton) {
+    cameraButton.disabled = true;
+  }
+
+  if (screenButton) {
+    screenButton.disabled = true;
+  }
 });
 
 // =========================================
@@ -1154,8 +1193,6 @@ socket.on("answer", async ({ sender, answer }) => {
     return;
   }
 
-  // Only accept an answer when this
-  // connection is actually waiting for one.
   if (pc.signalingState !== "have-local-offer") {
     console.warn(
       "Ignoring stale answer from:",
@@ -1558,6 +1595,10 @@ function showLocalVideo() {
   });
 }
 
+// =========================================
+// HIDE LOCAL VIDEO
+// =========================================
+
 function hideLocalVideo() {
   const container = document.getElementById("local-video-container");
 
@@ -1784,6 +1825,7 @@ if (messageInput) {
   messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
+
       sendMessage();
     }
   });
@@ -1884,25 +1926,43 @@ socket.on("chat-message", ({ username: senderUsername, message }) => {
 socket.on("chat-history", (chatHistory) => {
   messages.innerHTML = "";
 
-  chatHistory.forEach(
-    ({
-      username: senderUsername,
-
+  chatHistory.forEach(({ username: senderUsername, message, created_at }) => {
+    const messageElement = createChatMessage(
+      senderUsername,
       message,
-
       created_at,
-    }) => {
-      const messageElement = createChatMessage(
-        senderUsername,
-        message,
-        created_at,
-      );
+    );
 
-      messages.appendChild(messageElement);
-    },
-  );
+    messages.appendChild(messageElement);
+  });
 
   messages.scrollTop = messages.scrollHeight;
+});
+
+// =========================================
+// ROOM NAVIGATION
+// =========================================
+
+roomRows.forEach((roomRow) => {
+  roomRow.addEventListener("click", (event) => {
+    const destination = roomRow.href;
+
+    if (!destination || !loggedIn || !inRoom) {
+      return;
+    }
+
+    event.preventDefault();
+
+    console.log("Leaving room before navigation:", roomId);
+
+    inRoom = false;
+
+    socket.emit("leave-room");
+
+    setTimeout(() => {
+      window.location.href = destination;
+    }, 150);
+  });
 });
 
 // =========================================
@@ -1931,83 +1991,4 @@ function removePeer(userId) {
   if (container) {
     container.remove();
   }
-}
-
-// =========================================
-// LEAVE ROOM
-// =========================================
-
-if (leaveButton) {
-  leaveButton.addEventListener("click", () => {
-    socket.emit("leave-room");
-
-    Object.values(peerConnections).forEach((pc) => pc.close());
-
-    peerConnections = {};
-
-    remoteStreams = {};
-
-    remoteNames = {};
-
-    roomPeople = {};
-
-    cameraWatchers = {};
-
-    updatePeopleList();
-    updateWatchingList();
-
-    if (cameraTrack) {
-      cameraTrack.stop();
-
-      cameraTrack = null;
-    }
-
-    if (microphoneTrack) {
-      microphoneTrack.stop();
-
-      microphoneTrack = null;
-    }
-
-    if (screenTrack) {
-      screenTrack.stop();
-
-      screenTrack = null;
-    }
-
-    cameraOn = false;
-
-    microphoneOn = false;
-
-    screenSharing = false;
-
-    hideLocalVideo();
-
-    videos.innerHTML = "";
-
-    messages.innerHTML = "";
-
-    muteButton.disabled = true;
-
-    cameraButton.disabled = true;
-
-    screenButton.disabled = true;
-
-    leaveButton.disabled = true;
-
-    muteButton.textContent = "🎤 Mic On";
-
-    cameraButton.textContent = "📹 Camera On";
-
-    screenButton.textContent = "🖥️ Share Screen";
-
-    usernameArea.style.display = "block";
-
-    usernameInput.disabled = true;
-
-    joinButton.disabled = false;
-
-    usernameInput.value = username;
-
-    console.log("Left room. Still logged in.");
-  });
 }

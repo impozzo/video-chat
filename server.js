@@ -18,7 +18,35 @@ app.get("/room/:roomId", (req, res) => {
 
 const users = {};
 
+// =========================================
+// ROOM COUNTS
+// =========================================
+
+function getRoomCounts() {
+  const counts = {};
+
+  Object.values(users).forEach((user) => {
+    if (!user.roomId) {
+      return;
+    }
+
+    if (!counts[user.roomId]) {
+      counts[user.roomId] = 0;
+    }
+
+    counts[user.roomId]++;
+  });
+
+  return counts;
+}
+
+function broadcastRoomCounts() {
+  io.emit("room-counts", getRoomCounts());
+}
+
+// =========================================
 // PASSWORD FUNCTIONS
+// =========================================
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -47,7 +75,9 @@ function verifyPassword(password, storedPassword) {
   );
 }
 
+// =========================================
 // SESSION MANAGEMENT
+// =========================================
 
 function hashSessionToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -103,12 +133,22 @@ function deleteSession(token) {
   ).run(hashSessionToken(token));
 }
 
+// =========================================
 // SOCKET.IO
+// =========================================
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
+  // =========================================
+  // SEND CURRENT ROOM COUNTS
+  // =========================================
+
+  socket.emit("room-counts", getRoomCounts());
+
+  // =========================================
   // REGISTER
+  // =========================================
 
   socket.on("register-user", ({ username, password }) => {
     username = username.trim();
@@ -159,7 +199,9 @@ io.on("connection", (socket) => {
     }
   });
 
+  // =========================================
   // LOGIN
+  // =========================================
 
   socket.on("login-user", ({ username, password }) => {
     username = username.trim();
@@ -210,7 +252,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // RESTORE SESSION
+  // =========================================
 
   socket.on("restore-session", ({ token }) => {
     const user = getSessionUser(token);
@@ -238,7 +282,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // LOGOUT
+  // =========================================
 
   socket.on("logout-user", () => {
     if (socket.sessionToken) {
@@ -258,6 +304,8 @@ io.on("connection", (socket) => {
       delete users[socket.id];
 
       socket.leave(user.roomId);
+
+      broadcastRoomCounts();
     } else {
       console.log(`${socket.authenticatedUsername || "User"} logged out`);
     }
@@ -269,7 +317,9 @@ io.on("connection", (socket) => {
     socket.authenticatedUsername = null;
   });
 
+  // =========================================
   // JOIN ROOM
+  // =========================================
 
   socket.on("join-room", ({ roomId, username }) => {
     if (!socket.authenticatedUserId) {
@@ -280,6 +330,47 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // =========================================
+    // REMOVE THIS SOCKET FROM ANY OLD ROOM
+    // =========================================
+
+    const oldUser = users[socket.id];
+
+    if (oldUser && oldUser.roomId && oldUser.roomId !== roomId) {
+      console.log(
+        `${oldUser.username} left room ${oldUser.roomId} to join ${roomId}`,
+      );
+
+      socket.to(oldUser.roomId).emit("user-left", {
+        id: socket.id,
+        username: oldUser.username,
+      });
+
+      // Remove from the old Socket.IO room.
+      socket.leave(oldUser.roomId);
+
+      // Remove this user from camera-watcher lists.
+      for (const [otherId, otherUser] of Object.entries(users)) {
+        if (otherId !== socket.id && otherUser.roomId === oldUser.roomId) {
+          io.to(otherId).emit("camera-watcher", {
+            id: socket.id,
+            username: oldUser.username,
+            watching: false,
+          });
+        }
+      }
+
+      // Remove the old room membership.
+      delete users[socket.id];
+
+      // Update the old room count immediately.
+      broadcastRoomCounts();
+    }
+
+    // =========================================
+    // GET EXISTING USERS IN NEW ROOM
+    // =========================================
+
     const existingUsers = Object.entries(users)
       .filter(([id, user]) => user.roomId === roomId)
       .map(([id, user]) => ({
@@ -288,6 +379,10 @@ io.on("connection", (socket) => {
         camera: Boolean(user.camera),
         microphone: Boolean(user.microphone),
       }));
+
+    // =========================================
+    // ADD USER TO NEW ROOM
+    // =========================================
 
     users[socket.id] = {
       roomId: roomId,
@@ -314,6 +409,9 @@ io.on("connection", (socket) => {
       microphone: false,
     });
 
+    // Update room counts for everybody.
+    broadcastRoomCounts();
+
     // IMPORTANT:
     // Do NOT send start-connection to the existing users.
     //
@@ -324,7 +422,9 @@ io.on("connection", (socket) => {
     // sides create offers at the same time.
   });
 
+  // =========================================
   // CHAT HISTORY
+  // =========================================
 
   socket.on("get-chat-history", ({ roomId }) => {
     if (!socket.authenticatedUserId) {
@@ -351,7 +451,9 @@ io.on("connection", (socket) => {
     socket.emit("chat-history", history);
   });
 
+  // =========================================
   // MEDIA STATE
+  // =========================================
 
   socket.on("media-state", ({ camera, microphone }) => {
     const user = users[socket.id];
@@ -372,7 +474,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // CAMERA WATCHING
+  // =========================================
 
   socket.on("camera-watching", ({ target, watching }) => {
     const watcher = users[socket.id];
@@ -396,7 +500,9 @@ io.on("connection", (socket) => {
     );
   });
 
+  // =========================================
   // LEAVE ROOM
+  // =========================================
 
   socket.on("leave-room", () => {
     const user = users[socket.id];
@@ -426,9 +532,14 @@ io.on("connection", (socket) => {
     socket.leave(user.roomId);
 
     delete users[socket.id];
+
+    // Update room counts for everybody.
+    broadcastRoomCounts();
   });
 
+  // =========================================
   // CHAT MESSAGE
+  // =========================================
 
   socket.on("chat-message", ({ roomId, message }) => {
     if (!socket.authenticatedUserId) {
@@ -461,7 +572,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // OFFER
+  // =========================================
 
   socket.on("offer", ({ target, offer }) => {
     socket.to(target).emit("offer", {
@@ -470,7 +583,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // ANSWER
+  // =========================================
 
   socket.on("answer", ({ target, answer }) => {
     socket.to(target).emit("answer", {
@@ -479,7 +594,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // ICE CANDIDATE
+  // =========================================
 
   socket.on("ice-candidate", ({ target, candidate }) => {
     socket.to(target).emit("ice-candidate", {
@@ -488,7 +605,9 @@ io.on("connection", (socket) => {
     });
   });
 
+  // =========================================
   // DISCONNECT
+  // =========================================
 
   socket.on("disconnect", () => {
     const user = users[socket.id];
@@ -513,11 +632,18 @@ io.on("connection", (socket) => {
       }
 
       delete users[socket.id];
+
+      // Update room counts for everybody.
+      broadcastRoomCounts();
     }
 
     console.log("User disconnected:", socket.id);
   });
 });
+
+// =========================================
+// SERVER
+// =========================================
 
 const PORT = 3000;
 
