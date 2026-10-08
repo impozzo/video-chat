@@ -1,26 +1,33 @@
 const socket = io();
 
+// =========================================
 // BUTTONS
+// =========================================
 
 const joinButton = document.getElementById("joinButton");
-
 const muteButton = document.getElementById("muteButton");
-
 const cameraButton = document.getElementById("cameraButton");
-
 const screenButton = document.getElementById("screenButton");
-
 const leaveButton = document.getElementById("leaveButton");
-
 const logoutButton = document.getElementById("logoutButton");
 
+const topLoginButton = document.getElementById("topLoginButton");
+
+const topCreateAccountButton = document.getElementById(
+  "topCreateAccountButton",
+);
+
+// =========================================
 // USERNAME
+// =========================================
 
 const usernameInput = document.getElementById("usernameInput");
 
 const usernameArea = document.getElementById("usernameArea");
 
+// =========================================
 // REGISTRATION
+// =========================================
 
 const accountArea = document.getElementById("accountArea");
 
@@ -32,7 +39,9 @@ const registerButton = document.getElementById("registerButton");
 
 const registrationMessage = document.getElementById("registrationMessage");
 
+// =========================================
 // LOGIN
+// =========================================
 
 const loginArea = document.getElementById("loginArea");
 
@@ -48,11 +57,15 @@ const loginStatus = document.getElementById("loginStatus");
 
 const loginStatusText = document.getElementById("loginStatusText");
 
+// =========================================
 // VIDEO
+// =========================================
 
 const videos = document.getElementById("videos");
 
+// =========================================
 // CHAT
+// =========================================
 
 const messages = document.getElementById("messages");
 
@@ -60,7 +73,9 @@ const messageInput = document.getElementById("messageInput");
 
 const sendButton = document.getElementById("sendButton");
 
+// =========================================
 // ROOM
+// =========================================
 
 const roomInfo = document.getElementById("roomInfo");
 
@@ -68,52 +83,214 @@ const peopleList = document.getElementById("peopleList");
 
 const peopleTitle = document.getElementById("peopleTitle");
 
+const watchingList = document.getElementById("watchingList");
+
+const watchingTitle = document.getElementById("watchingTitle");
+
 const copyLinkButton = document.getElementById("copyLinkButton");
 
+const roomSelect = document.getElementById("roomSelect");
+
+// =========================================
 // ROOM ID
+// =========================================
 
 const roomId = window.location.pathname.split("/").pop();
 
-roomInfo.textContent = `Room: ${roomId}`;
+if (roomInfo) {
+  roomInfo.textContent = `Room: ${roomId}`;
+}
 
+// =========================================
+// ROOM SELECTION
+// =========================================
+
+if (roomSelect) {
+  roomSelect.value = roomId;
+
+  roomSelect.addEventListener("change", () => {
+    const selectedRoom = roomSelect.value;
+
+    if (selectedRoom === roomId) {
+      return;
+    }
+
+    window.location.href = `/room/${encodeURIComponent(selectedRoom)}`;
+  });
+}
+
+// =========================================
 // ACCOUNT STATE
+// =========================================
 
 let username = "";
-
 let loggedIn = false;
-
 let loggedInUserId = null;
 
-let sessionToken = localStorage.getItem("sessionToken");
+// IMPORTANT:
+// sessionStorage is per browser tab/window.
+// This prevents multiple windows from sharing
+// the same login session.
 
+let sessionToken = sessionStorage.getItem("sessionToken");
+
+// =========================================
 // MEDIA
+// =========================================
 
 let localStream = new MediaStream();
 
 let peerConnections = {};
-
 let remoteNames = {};
-
 let remoteStreams = {};
-
 let roomPeople = {};
+let cameraWatchers = {};
 
 let microphoneOn = false;
-
 let cameraOn = false;
-
 let screenSharing = false;
 
 let screenTrack = null;
-
 let cameraTrack = null;
-
 let microphoneTrack = null;
 
+// =========================================
+// ACCOUNT UI HELPERS
+// =========================================
+
+function closeLogin() {
+  if (loginArea) {
+    loginArea.style.display = "none";
+  }
+
+  if (topLoginButton) {
+    topLoginButton.textContent = "Login";
+  }
+}
+
+function openLogin() {
+  if (!loginArea) {
+    return;
+  }
+
+  if (accountArea) {
+    accountArea.style.display = "none";
+  }
+
+  if (topCreateAccountButton) {
+    topCreateAccountButton.textContent = "Create Account";
+  }
+
+  loginArea.style.display = "block";
+
+  if (topLoginButton) {
+    topLoginButton.textContent = "Close Login";
+  }
+
+  loginArea.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
+
+  setTimeout(() => {
+    if (loginUsernameInput) {
+      loginUsernameInput.focus();
+    }
+  }, 300);
+}
+
+function closeAccount() {
+  if (accountArea) {
+    accountArea.style.display = "none";
+  }
+
+  if (topCreateAccountButton) {
+    topCreateAccountButton.textContent = "Create Account";
+  }
+}
+
+function openAccount() {
+  if (!accountArea) {
+    return;
+  }
+
+  if (loginArea) {
+    loginArea.style.display = "none";
+  }
+
+  if (topLoginButton) {
+    topLoginButton.textContent = "Login";
+  }
+
+  accountArea.style.display = "block";
+
+  if (topCreateAccountButton) {
+    topCreateAccountButton.textContent = "Close Account";
+  }
+
+  accountArea.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+  });
+
+  setTimeout(() => {
+    if (registerUsernameInput) {
+      registerUsernameInput.focus();
+    }
+  }, 300);
+}
+
+// =========================================
+// HIDE ACCOUNT FORMS WHEN PAGE LOADS
+// =========================================
+
+closeLogin();
+closeAccount();
+
+// =========================================
+// TOP LOGIN BUTTON
+// =========================================
+
+if (topLoginButton) {
+  topLoginButton.addEventListener("click", () => {
+    if (loggedIn) {
+      return;
+    }
+
+    if (loginArea && loginArea.style.display === "block") {
+      closeLogin();
+    } else {
+      openLogin();
+    }
+  });
+}
+
+// =========================================
+// TOP CREATE ACCOUNT BUTTON
+// =========================================
+
+if (topCreateAccountButton) {
+  topCreateAccountButton.addEventListener("click", () => {
+    if (loggedIn) {
+      return;
+    }
+
+    if (accountArea && accountArea.style.display === "block") {
+      closeAccount();
+    } else {
+      openAccount();
+    }
+  });
+}
+
+// =========================================
 // RESTORE SESSION
+// =========================================
 
 socket.on("connect", () => {
-  const savedToken = localStorage.getItem("sessionToken");
+  console.log("Socket connected.");
+
+  const savedToken = sessionStorage.getItem("sessionToken");
 
   if (!savedToken) {
     return;
@@ -126,33 +303,39 @@ socket.on("connect", () => {
   });
 });
 
+// =========================================
 // SESSION RESTORED
+// =========================================
 
 socket.on("session-result", (result) => {
   if (!result.success) {
-    localStorage.removeItem("sessionToken");
+    sessionStorage.removeItem("sessionToken");
 
     sessionToken = null;
-
     loggedIn = false;
-
     loggedInUserId = null;
-
     username = "";
 
-    loginStatusText.textContent = "🔴 Not logged in";
+    if (loginStatusText) {
+      loginStatusText.textContent = "🔴 Not logged in";
+    }
 
-    logoutButton.style.display = "none";
+    if (logoutButton) {
+      logoutButton.style.display = "none";
+    }
 
-    accountArea.style.display = "block";
+    closeLogin();
+    closeAccount();
 
-    loginArea.style.display = "block";
+    if (usernameArea) {
+      usernameArea.style.display = "block";
+    }
 
-    usernameArea.style.display = "block";
+    if (usernameInput) {
+      usernameInput.value = "";
 
-    usernameInput.value = "";
-
-    usernameInput.disabled = true;
+      usernameInput.disabled = true;
+    }
 
     return;
   }
@@ -163,30 +346,45 @@ socket.on("session-result", (result) => {
 
   username = result.username;
 
-  usernameInput.value = result.username;
+  if (usernameInput) {
+    usernameInput.value = result.username;
 
-  usernameInput.disabled = true;
+    usernameInput.disabled = true;
+  }
 
-  loginUsernameInput.disabled = true;
+  if (loginUsernameInput) {
+    loginUsernameInput.disabled = true;
+  }
 
-  loginPasswordInput.disabled = true;
+  if (loginPasswordInput) {
+    loginPasswordInput.disabled = true;
+  }
 
-  loginButton.disabled = true;
+  if (loginButton) {
+    loginButton.disabled = true;
+  }
 
-  loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
+  if (loginStatusText) {
+    loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
+  }
 
-  logoutButton.style.display = "inline-block";
+  if (logoutButton) {
+    logoutButton.style.display = "inline-block";
+  }
 
-  accountArea.style.display = "none";
-
-  loginArea.style.display = "none";
+  closeLogin();
+  closeAccount();
 
   console.log("Session restored:", result.username);
 });
 
+// =========================================
 // JOIN ROOM
+// =========================================
 
-joinButton.addEventListener("click", joinRoom);
+if (joinButton) {
+  joinButton.addEventListener("click", joinRoom);
+}
 
 function joinRoom() {
   if (!loggedIn) {
@@ -205,6 +403,7 @@ function joinRoom() {
 
   socket.emit("join-room", {
     roomId: roomId,
+
     username: username,
   });
 
@@ -227,15 +426,21 @@ function joinRoom() {
   console.log("Joining room:", roomId);
 }
 
+// =========================================
 // REGISTER ACCOUNT
+// =========================================
 
-registerButton.addEventListener("click", registerAccount);
+if (registerButton) {
+  registerButton.addEventListener("click", registerAccount);
+}
 
-registerPasswordInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    registerAccount();
-  }
-});
+if (registerPasswordInput) {
+  registerPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      registerAccount();
+    }
+  });
+}
 
 function registerAccount() {
   const registerUsername = registerUsernameInput.value.trim();
@@ -271,36 +476,53 @@ function registerAccount() {
   });
 }
 
+// =========================================
 // REGISTRATION RESULT
+// =========================================
 
 socket.on("registration-result", (result) => {
   registerButton.disabled = false;
 
   if (result.success) {
-    registrationMessage.textContent =
-      "Account created successfully. Please log in.";
+    const successMessage = "Account created successfully. Please log in.";
 
     registerUsernameInput.value = "";
 
     registerPasswordInput.value = "";
 
+    closeAccount();
+
+    openLogin();
+
     loginUsernameInput.value = result.username;
 
-    loginPasswordInput.focus();
+    loginPasswordInput.value = "";
+
+    loginMessage.textContent = successMessage;
+
+    setTimeout(() => {
+      loginPasswordInput.focus();
+    }, 350);
   } else {
     registrationMessage.textContent = result.message;
   }
 });
 
+// =========================================
 // LOGIN
+// =========================================
 
-loginButton.addEventListener("click", loginAccount);
+if (loginButton) {
+  loginButton.addEventListener("click", loginAccount);
+}
 
-loginPasswordInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    loginAccount();
-  }
-});
+if (loginPasswordInput) {
+  loginPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      loginAccount();
+    }
+  });
+}
 
 function loginAccount() {
   const loginUsername = loginUsernameInput.value.trim();
@@ -330,17 +552,20 @@ function loginAccount() {
   });
 }
 
+// =========================================
 // LOGIN RESULT
+// =========================================
 
 socket.on("login-result", (result) => {
   if (!result.success) {
     loginButton.disabled = false;
 
     loggedIn = false;
-
     loggedInUserId = null;
 
-    loginStatusText.textContent = "🔴 Not logged in";
+    if (loginStatusText) {
+      loginStatusText.textContent = "🔴 Not logged in";
+    }
 
     loginMessage.textContent = result.message;
 
@@ -369,102 +594,103 @@ socket.on("login-result", (result) => {
 
   logoutButton.style.display = "inline-block";
 
-  accountArea.style.display = "none";
-
-  loginArea.style.display = "none";
+  closeLogin();
+  closeAccount();
 
   if (result.sessionToken) {
     sessionToken = result.sessionToken;
 
-    localStorage.setItem("sessionToken", result.sessionToken);
+    sessionStorage.setItem("sessionToken", result.sessionToken);
   }
 
-  console.log(
-    "Logged in:",
-    result.username,
-
-    "Database ID:",
-    result.userId,
-  );
+  console.log("Logged in:", result.username, "Database ID:", result.userId);
 });
 
+// =========================================
 // LOGOUT
+// =========================================
 
-logoutButton.addEventListener("click", () => {
-  if (!leaveButton.disabled) {
-    leaveButton.click();
-  }
+if (logoutButton) {
+  logoutButton.addEventListener("click", () => {
+    if (!leaveButton.disabled) {
+      leaveButton.click();
+    }
 
-  if (cameraTrack) {
-    cameraTrack.stop();
+    if (cameraTrack) {
+      cameraTrack.stop();
+      cameraTrack = null;
+    }
 
-    cameraTrack = null;
-  }
+    if (microphoneTrack) {
+      microphoneTrack.stop();
+      microphoneTrack = null;
+    }
 
-  if (microphoneTrack) {
-    microphoneTrack.stop();
+    if (screenTrack) {
+      screenTrack.stop();
+      screenTrack = null;
+    }
 
-    microphoneTrack = null;
-  }
+    localStream = new MediaStream();
 
-  if (screenTrack) {
-    screenTrack.stop();
+    cameraOn = false;
 
-    screenTrack = null;
-  }
+    microphoneOn = false;
 
-  localStream = new MediaStream();
+    screenSharing = false;
 
-  cameraOn = false;
+    cameraWatchers = {};
 
-  microphoneOn = false;
+    updateWatchingList();
 
-  screenSharing = false;
+    messages.innerHTML = "";
 
-  messages.innerHTML = "";
+    socket.emit("logout-user");
 
-  socket.emit("logout-user");
+    sessionStorage.removeItem("sessionToken");
 
-  localStorage.removeItem("sessionToken");
+    sessionToken = null;
 
-  sessionToken = null;
+    loggedIn = false;
 
-  loggedIn = false;
+    loggedInUserId = null;
 
-  loggedInUserId = null;
+    username = "";
 
-  username = "";
+    loginUsernameInput.value = "";
 
-  loginUsernameInput.value = "";
+    loginPasswordInput.value = "";
 
-  loginPasswordInput.value = "";
+    loginUsernameInput.disabled = false;
 
-  loginUsernameInput.disabled = false;
+    loginPasswordInput.disabled = false;
 
-  loginPasswordInput.disabled = false;
+    loginButton.disabled = false;
 
-  loginButton.disabled = false;
+    loginMessage.textContent = "";
 
-  loginMessage.textContent = "";
+    registrationMessage.textContent = "";
 
-  loginStatusText.textContent = "🔴 Not logged in";
+    loginStatusText.textContent = "🔴 Not logged in";
 
-  logoutButton.style.display = "none";
+    logoutButton.style.display = "none";
 
-  accountArea.style.display = "block";
+    closeLogin();
+    closeAccount();
 
-  loginArea.style.display = "block";
+    usernameArea.style.display = "block";
 
-  usernameArea.style.display = "block";
+    usernameInput.value = "";
 
-  usernameInput.value = "";
+    usernameInput.disabled = true;
 
-  usernameInput.disabled = true;
+    console.log("Logged out.");
+  });
+}
 
-  console.log("Logged out.");
-});
-
+// =========================================
 // JOIN ERROR
+// =========================================
 
 socket.on("join-error", (result) => {
   alert(result.message);
@@ -472,25 +698,31 @@ socket.on("join-error", (result) => {
   joinButton.disabled = false;
 });
 
+// =========================================
 // COPY ROOM LINK
+// =========================================
 
-copyLinkButton.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(window.location.href);
+if (copyLinkButton) {
+  copyLinkButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
 
-    copyLinkButton.textContent = "✓ Link Copied!";
+      copyLinkButton.textContent = "✓ Link Copied!";
 
-    setTimeout(() => {
-      copyLinkButton.textContent = "🔗 Copy Room Link";
-    }, 2000);
-  } catch (error) {
-    console.error("Could not copy room link:", error);
+      setTimeout(() => {
+        copyLinkButton.textContent = "🔗 Copy Room Link";
+      }, 2000);
+    } catch (error) {
+      console.error("Could not copy room link:", error);
 
-    alert("Could not copy the room link.");
-  }
-});
+      alert("Could not copy the room link.");
+    }
+  });
+}
 
+// =========================================
 // PEOPLE IN ROOM
+// =========================================
 
 function updatePeopleList() {
   peopleList.innerHTML = "";
@@ -580,7 +812,55 @@ function updatePeopleList() {
   });
 }
 
+// =========================================
+// WATCHING MY CAMERA
+// =========================================
+
+function updateWatchingList() {
+  watchingList.innerHTML = "";
+
+  const watchers = Object.values(cameraWatchers);
+
+  watchingTitle.textContent = `Watching My Camera (${watchers.length})`;
+
+  watchers.forEach((person) => {
+    const div = document.createElement("div");
+
+    div.className = "person";
+
+    const nameSpan = document.createElement("span");
+
+    nameSpan.className = "person-name";
+
+    nameSpan.textContent = `👁️ ${person.username}`;
+
+    div.appendChild(nameSpan);
+
+    watchingList.appendChild(div);
+  });
+}
+
+// =========================================
+// CAMERA WATCHER UPDATE
+// =========================================
+
+socket.on("camera-watcher", (watcher) => {
+  if (watcher.watching) {
+    cameraWatchers[watcher.id] = {
+      id: watcher.id,
+
+      username: watcher.username,
+    };
+  } else {
+    delete cameraWatchers[watcher.id];
+  }
+
+  updateWatchingList();
+});
+
+// =========================================
 // ROOM USERS
+// =========================================
 
 socket.on("room-users", (users) => {
   console.log("Existing users:", users);
@@ -614,7 +894,9 @@ socket.on("room-users", (users) => {
   updatePeopleList();
 });
 
+// =========================================
 // START CONNECTION
+// =========================================
 
 socket.on("start-connection", (user) => {
   remoteNames[user.id] = user.username;
@@ -636,7 +918,9 @@ socket.on("start-connection", (user) => {
   updatePeopleList();
 });
 
+// =========================================
 // USER JOINED
+// =========================================
 
 socket.on("user-joined", (user) => {
   console.log(`${user.username} joined`);
@@ -656,19 +940,27 @@ socket.on("user-joined", (user) => {
   updatePeopleList();
 });
 
+// =========================================
 // USER LEFT
+// =========================================
 
 socket.on("user-left", (user) => {
   console.log(`${user.username} left`);
 
   delete roomPeople[user.id];
 
+  delete cameraWatchers[user.id];
+
   updatePeopleList();
+
+  updateWatchingList();
 
   removePeer(user.id);
 });
 
+// =========================================
 // MEDIA STATE
+// =========================================
 
 socket.on("media-state", (state) => {
   console.log(`${state.username} media state:`, state);
@@ -698,7 +990,9 @@ socket.on("media-state", (state) => {
   }
 });
 
+// =========================================
 // CREATE PEER CONNECTION
+// =========================================
 
 function createPeerConnection(
   userId,
@@ -754,17 +1048,36 @@ function createPeerConnection(
   pc.ontrack = (event) => {
     console.log("Received media from:", userName, event.track.kind);
 
-    let stream = remoteStreams[userId];
+    if (event.track.kind === "video") {
+      socket.emit("camera-watching", {
+        target: userId,
+
+        watching: true,
+      });
+    }
+
+    let stream =
+      event.streams && event.streams.length > 0
+        ? event.streams[0]
+        : remoteStreams[userId];
 
     if (!stream) {
       stream = new MediaStream();
 
-      remoteStreams[userId] = stream;
-    }
-
-    if (!stream.getTracks().some((track) => track.id === event.track.id)) {
       stream.addTrack(event.track);
     }
+
+    remoteStreams[userId] = stream;
+
+    event.track.addEventListener("unmute", () => {
+      const video = document.getElementById(`video-${userId}`);
+
+      if (video) {
+        video.play().catch((error) => {
+          console.error("Remote video playback error:", error);
+        });
+      }
+    });
 
     ensureRemoteVideo(userId, userName, stream);
   };
@@ -772,7 +1085,9 @@ function createPeerConnection(
   return pc;
 }
 
+// =========================================
 // START CONNECTION
+// =========================================
 
 async function startConnection(userId, userName) {
   if (peerConnections[userId]) {
@@ -798,7 +1113,9 @@ async function startConnection(userId, userName) {
   }
 }
 
+// =========================================
 // RECEIVE OFFER
+// =========================================
 
 socket.on("offer", async ({ sender, offer }) => {
   let pc = peerConnections[sender];
@@ -826,7 +1143,9 @@ socket.on("offer", async ({ sender, offer }) => {
   }
 });
 
+// =========================================
 // RECEIVE ANSWER
+// =========================================
 
 socket.on("answer", async ({ sender, answer }) => {
   const pc = peerConnections[sender];
@@ -835,14 +1154,31 @@ socket.on("answer", async ({ sender, answer }) => {
     return;
   }
 
+  // Only accept an answer when this
+  // connection is actually waiting for one.
+  if (pc.signalingState !== "have-local-offer") {
+    console.warn(
+      "Ignoring stale answer from:",
+      remoteNames[sender] || sender,
+      "Current state:",
+      pc.signalingState,
+    );
+
+    return;
+  }
+
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+    console.log("Answer accepted from:", remoteNames[sender] || sender);
   } catch (error) {
     console.error("Error setting answer:", error);
   }
 });
 
+// =========================================
 // ICE CANDIDATE
+// =========================================
 
 socket.on("ice-candidate", async ({ sender, candidate }) => {
   const pc = peerConnections[sender];
@@ -858,7 +1194,9 @@ socket.on("ice-candidate", async ({ sender, candidate }) => {
   }
 });
 
+// =========================================
 // ATTACH LOCAL TRACKS
+// =========================================
 
 function attachLocalTracks(pc) {
   const transceivers = pc.getTransceivers();
@@ -910,7 +1248,9 @@ function attachLocalTracks(pc) {
   }
 }
 
+// =========================================
 // CAMERA
+// =========================================
 
 async function startCamera() {
   try {
@@ -982,6 +1322,10 @@ async function stopCamera() {
 
   hideLocalVideo();
 
+  cameraWatchers = {};
+
+  updateWatchingList();
+
   for (const userId in peerConnections) {
     const pc = peerConnections[userId];
 
@@ -1018,15 +1362,19 @@ async function stopCamera() {
   cameraButton.textContent = "📹 Camera On";
 }
 
-cameraButton.addEventListener("click", async () => {
-  if (cameraOn) {
-    await stopCamera();
-  } else {
-    await startCamera();
-  }
-});
+if (cameraButton) {
+  cameraButton.addEventListener("click", async () => {
+    if (cameraOn) {
+      await stopCamera();
+    } else {
+      await startCamera();
+    }
+  });
+}
 
+// =========================================
 // MICROPHONE
+// =========================================
 
 async function startMicrophone() {
   try {
@@ -1130,15 +1478,19 @@ async function stopMicrophone() {
   muteButton.textContent = "🎤 Mic On";
 }
 
-muteButton.addEventListener("click", async () => {
-  if (microphoneOn) {
-    await stopMicrophone();
-  } else {
-    await startMicrophone();
-  }
-});
+if (muteButton) {
+  muteButton.addEventListener("click", async () => {
+    if (microphoneOn) {
+      await stopMicrophone();
+    } else {
+      await startMicrophone();
+    }
+  });
+}
 
+// =========================================
 // RENEGOTIATE
+// =========================================
 
 async function renegotiate(userId, pc) {
   try {
@@ -1160,7 +1512,9 @@ async function renegotiate(userId, pc) {
   }
 }
 
+// =========================================
 // LOCAL VIDEO
+// =========================================
 
 function showLocalVideo() {
   let container = document.getElementById("local-video-container");
@@ -1198,6 +1552,10 @@ function showLocalVideo() {
   const video = document.getElementById("local-video");
 
   video.srcObject = localStream;
+
+  video.play().catch((error) => {
+    console.log("Local video playback:", error);
+  });
 }
 
 function hideLocalVideo() {
@@ -1208,7 +1566,9 @@ function hideLocalVideo() {
   }
 }
 
+// =========================================
 // REMOTE VIDEO
+// =========================================
 
 function ensureRemoteVideo(userId, userName, stream) {
   let container = document.getElementById(`video-container-${userId}`);
@@ -1255,6 +1615,12 @@ function ensureRemoteVideo(userId, userName, stream) {
     container.appendChild(label);
 
     videos.appendChild(container);
+
+    video.addEventListener("loadedmetadata", () => {
+      video.play().catch((error) => {
+        console.log("Remote video playback waiting:", error);
+      });
+    });
   }
 
   const video = document.getElementById(`video-${userId}`);
@@ -1262,13 +1628,25 @@ function ensureRemoteVideo(userId, userName, stream) {
   if (video.srcObject !== stream) {
     video.srcObject = stream;
   }
+
+  video.play().catch((error) => {
+    console.log("Remote video play attempt:", error);
+  });
 }
 
 function showRemoteVideo(userId) {
   const container = document.getElementById(`video-container-${userId}`);
 
+  const video = document.getElementById(`video-${userId}`);
+
   if (container) {
     container.style.display = "block";
+  }
+
+  if (video) {
+    video.play().catch((error) => {
+      console.error("Could not play remote video:", error);
+    });
   }
 }
 
@@ -1280,15 +1658,19 @@ function hideRemoteVideo(userId) {
   }
 }
 
+// =========================================
 // SCREEN SHARING
+// =========================================
 
-screenButton.addEventListener("click", async () => {
-  if (screenSharing) {
-    await stopScreenSharing();
-  } else {
-    await startScreenSharing();
-  }
-});
+if (screenButton) {
+  screenButton.addEventListener("click", async () => {
+    if (screenSharing) {
+      await stopScreenSharing();
+    } else {
+      await startScreenSharing();
+    }
+  });
+}
 
 async function startScreenSharing() {
   try {
@@ -1390,17 +1772,22 @@ async function stopScreenSharing() {
   screenButton.textContent = "🖥️ Share Screen";
 }
 
+// =========================================
 // CHAT
+// =========================================
 
-sendButton.addEventListener("click", sendMessage);
+if (sendButton) {
+  sendButton.addEventListener("click", sendMessage);
+}
 
-messageInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-
-    sendMessage();
-  }
-});
+if (messageInput) {
+  messageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+}
 
 function sendMessage() {
   const message = messageInput.value.trim();
@@ -1420,7 +1807,9 @@ function sendMessage() {
   messageInput.focus();
 }
 
+// =========================================
 // CREATE CHAT MESSAGE
+// =========================================
 
 function createChatMessage(senderUsername, message, createdAt = null) {
   const messageElement = document.createElement("div");
@@ -1476,24 +1865,21 @@ function createChatMessage(senderUsername, message, createdAt = null) {
   return messageElement;
 }
 
+// =========================================
 // RECEIVE NEW CHAT MESSAGE
+// =========================================
 
-socket.on(
-  "chat-message",
-  ({
-    username: senderUsername,
+socket.on("chat-message", ({ username: senderUsername, message }) => {
+  const messageElement = createChatMessage(senderUsername, message);
 
-    message,
-  }) => {
-    const messageElement = createChatMessage(senderUsername, message);
+  messages.appendChild(messageElement);
 
-    messages.appendChild(messageElement);
+  messages.scrollTop = messages.scrollHeight;
+});
 
-    messages.scrollTop = messages.scrollHeight;
-  },
-);
-
+// =========================================
 // RECEIVE CHAT HISTORY
+// =========================================
 
 socket.on("chat-history", (chatHistory) => {
   messages.innerHTML = "";
@@ -1519,7 +1905,9 @@ socket.on("chat-history", (chatHistory) => {
   messages.scrollTop = messages.scrollHeight;
 });
 
+// =========================================
 // REMOVE PEER
+// =========================================
 
 function removePeer(userId) {
   const pc = peerConnections[userId];
@@ -1534,6 +1922,10 @@ function removePeer(userId) {
 
   delete remoteNames[userId];
 
+  delete cameraWatchers[userId];
+
+  updateWatchingList();
+
   const container = document.getElementById(`video-container-${userId}`);
 
   if (container) {
@@ -1541,72 +1933,81 @@ function removePeer(userId) {
   }
 }
 
+// =========================================
 // LEAVE ROOM
+// =========================================
 
-leaveButton.addEventListener("click", () => {
-  socket.emit("leave-room");
+if (leaveButton) {
+  leaveButton.addEventListener("click", () => {
+    socket.emit("leave-room");
 
-  Object.values(peerConnections).forEach((pc) => pc.close());
+    Object.values(peerConnections).forEach((pc) => pc.close());
 
-  peerConnections = {};
+    peerConnections = {};
 
-  remoteStreams = {};
+    remoteStreams = {};
 
-  remoteNames = {};
+    remoteNames = {};
 
-  roomPeople = {};
+    roomPeople = {};
 
-  updatePeopleList();
+    cameraWatchers = {};
 
-  if (cameraTrack) {
-    cameraTrack.stop();
+    updatePeopleList();
+    updateWatchingList();
 
-    cameraTrack = null;
-  }
+    if (cameraTrack) {
+      cameraTrack.stop();
 
-  if (microphoneTrack) {
-    microphoneTrack.stop();
+      cameraTrack = null;
+    }
 
-    microphoneTrack = null;
-  }
+    if (microphoneTrack) {
+      microphoneTrack.stop();
 
-  if (screenTrack) {
-    screenTrack.stop();
+      microphoneTrack = null;
+    }
 
-    screenTrack = null;
-  }
+    if (screenTrack) {
+      screenTrack.stop();
 
-  cameraOn = false;
+      screenTrack = null;
+    }
 
-  microphoneOn = false;
+    cameraOn = false;
 
-  screenSharing = false;
+    microphoneOn = false;
 
-  hideLocalVideo();
+    screenSharing = false;
 
-  videos.innerHTML = "";
+    hideLocalVideo();
 
-  muteButton.disabled = true;
+    videos.innerHTML = "";
 
-  cameraButton.disabled = true;
+    messages.innerHTML = "";
 
-  screenButton.disabled = true;
+    muteButton.disabled = true;
 
-  leaveButton.disabled = true;
+    cameraButton.disabled = true;
 
-  muteButton.textContent = "🎤 Mic On";
+    screenButton.disabled = true;
 
-  cameraButton.textContent = "📹 Camera On";
+    leaveButton.disabled = true;
 
-  screenButton.textContent = "🖥️ Share Screen";
+    muteButton.textContent = "🎤 Mic On";
 
-  usernameArea.style.display = "block";
+    cameraButton.textContent = "📹 Camera On";
 
-  usernameInput.disabled = true;
+    screenButton.textContent = "🖥️ Share Screen";
 
-  joinButton.disabled = false;
+    usernameArea.style.display = "block";
 
-  usernameInput.value = username;
+    usernameInput.disabled = true;
 
-  console.log("Left room. Still logged in.");
-});
+    joinButton.disabled = false;
+
+    usernameInput.value = username;
+
+    console.log("Left room. Still logged in.");
+  });
+}

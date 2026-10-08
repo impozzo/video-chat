@@ -114,7 +114,7 @@ io.on("connection", (socket) => {
     username = username.trim();
 
     if (!username || !password) {
-      socket.emit("register-result", {
+      socket.emit("registration-result", {
         success: false,
         message: "Username and password are required.",
       });
@@ -128,30 +128,30 @@ io.on("connection", (socket) => {
       const result = db
         .prepare(
           `
-                            INSERT INTO users
-                            (username, password)
-                            VALUES (?, ?)
-                        `,
+            INSERT INTO users
+            (username, password)
+            VALUES (?, ?)
+          `,
         )
         .run(username, passwordHash);
 
       console.log(`User registered: ${username}`);
 
-      socket.emit("register-result", {
+      socket.emit("registration-result", {
         success: true,
         userId: result.lastInsertRowid,
         username: username,
       });
     } catch (error) {
       if (error.message.includes("UNIQUE constraint failed")) {
-        socket.emit("register-result", {
+        socket.emit("registration-result", {
           success: false,
           message: "Username already exists.",
         });
       } else {
         console.error("Registration error:", error);
 
-        socket.emit("register-result", {
+        socket.emit("registration-result", {
           success: false,
           message: "Registration failed.",
         });
@@ -167,10 +167,10 @@ io.on("connection", (socket) => {
     const user = db
       .prepare(
         `
-                        SELECT *
-                        FROM users
-                        WHERE username = ?
-                    `,
+          SELECT *
+          FROM users
+          WHERE username = ?
+        `,
       )
       .get(username);
 
@@ -191,8 +191,6 @@ io.on("connection", (socket) => {
 
       return;
     }
-
-    // CREATE SESSION
 
     const sessionToken = createSession(user.id);
 
@@ -287,21 +285,15 @@ io.on("connection", (socket) => {
       .map(([id, user]) => ({
         id: id,
         username: user.username,
-
         camera: Boolean(user.camera),
-
         microphone: Boolean(user.microphone),
       }));
 
     users[socket.id] = {
       roomId: roomId,
-
       username: username,
-
       userId: socket.authenticatedUserId,
-
       camera: false,
-
       microphone: false,
     };
 
@@ -309,17 +301,27 @@ io.on("connection", (socket) => {
 
     console.log(`${username} joined room ${roomId}`);
 
+    // Tell the NEW user who is already in the room.
+    // The new user will initiate the WebRTC connections.
     socket.emit("room-users", existingUsers);
 
+    // Tell everyone else that this user joined.
+    // This updates their People in Room list.
     socket.to(roomId).emit("user-joined", {
       id: socket.id,
-
       username: username,
-
       camera: false,
-
       microphone: false,
     });
+
+    // IMPORTANT:
+    // Do NOT send start-connection to the existing users.
+    //
+    // The new user already received existingUsers above
+    // and will call startConnection() for each existing user.
+    //
+    // Sending start-connection here too would make BOTH
+    // sides create offers at the same time.
   });
 
   // CHAT HISTORY
@@ -332,17 +334,17 @@ io.on("connection", (socket) => {
     const history = db
       .prepare(
         `
-                        SELECT
-                            messages.id,
-                            messages.message,
-                            messages.created_at,
-                            users.username
-                        FROM messages
-                        JOIN users
-                            ON messages.user_id = users.id
-                        WHERE messages.room_id = ?
-                        ORDER BY messages.id ASC
-                    `,
+          SELECT
+              messages.id,
+              messages.message,
+              messages.created_at,
+              users.username
+          FROM messages
+          JOIN users
+              ON messages.user_id = users.id
+          WHERE messages.room_id = ?
+          ORDER BY messages.id ASC
+        `,
       )
       .all(roomId);
 
@@ -364,13 +366,34 @@ io.on("connection", (socket) => {
 
     socket.to(user.roomId).emit("media-state", {
       id: socket.id,
-
       username: user.username,
-
       camera: user.camera,
-
       microphone: user.microphone,
     });
+  });
+
+  // CAMERA WATCHING
+
+  socket.on("camera-watching", ({ target, watching }) => {
+    const watcher = users[socket.id];
+
+    const targetUser = users[target];
+
+    if (!watcher || !targetUser) {
+      return;
+    }
+
+    socket.to(target).emit("camera-watcher", {
+      id: socket.id,
+      username: watcher.username,
+      watching: Boolean(watching),
+    });
+
+    console.log(
+      `${watcher.username} ${
+        watching ? "is watching" : "stopped watching"
+      } ${targetUser.username}'s camera`,
+    );
   });
 
   // LEAVE ROOM
@@ -388,6 +411,17 @@ io.on("connection", (socket) => {
       id: socket.id,
       username: user.username,
     });
+
+    // Remove this user from camera-watcher lists.
+    for (const [otherId, otherUser] of Object.entries(users)) {
+      if (otherId !== socket.id && otherUser.roomId === user.roomId) {
+        io.to(otherId).emit("camera-watcher", {
+          id: socket.id,
+          username: user.username,
+          watching: false,
+        });
+      }
+    }
 
     socket.leave(user.roomId);
 
@@ -415,10 +449,10 @@ io.on("connection", (socket) => {
 
     db.prepare(
       `
-                    INSERT INTO messages
-                    (room_id, user_id, message)
-                    VALUES (?, ?, ?)
-                `,
+        INSERT INTO messages
+        (room_id, user_id, message)
+        VALUES (?, ?, ?)
+      `,
     ).run(roomId, socket.authenticatedUserId, message);
 
     io.to(roomId).emit("chat-message", {
@@ -466,6 +500,17 @@ io.on("connection", (socket) => {
         id: socket.id,
         username: user.username,
       });
+
+      // Remove this user from camera-watcher lists.
+      for (const [otherId, otherUser] of Object.entries(users)) {
+        if (otherId !== socket.id && otherUser.roomId === user.roomId) {
+          io.to(otherId).emit("camera-watcher", {
+            id: socket.id,
+            username: user.username,
+            watching: false,
+          });
+        }
+      }
 
       delete users[socket.id];
     }
