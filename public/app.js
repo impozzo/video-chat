@@ -121,6 +121,35 @@ if (roomInfo) {
 }
 
 // =========================================
+// HIGHLIGHT CURRENT ROOM
+// =========================================
+
+function highlightCurrentRoom() {
+  roomRows.forEach((roomRow) => {
+    const isCurrentRoom = roomRow.dataset.room === roomId;
+
+    roomRow.classList.toggle("current-room", isCurrentRoom);
+
+    roomRow.setAttribute("aria-current", isCurrentRoom ? "page" : "false");
+  });
+}
+
+const currentRoomStyle = document.createElement("style");
+
+currentRoomStyle.textContent = `
+  .room-row.current-room {
+    outline: 2px solid #4da3ff;
+    outline-offset: -2px;
+    background: rgba(77, 163, 255, 0.18);
+    font-weight: 700;
+  }
+`;
+
+document.head.appendChild(currentRoomStyle);
+
+highlightCurrentRoom();
+
+// =========================================
 // ACCOUNT STATE
 // =========================================
 
@@ -393,7 +422,6 @@ socket.on("session-result", (result) => {
     loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
   }
 
-  // Login disappears and Logout takes its exact place.
   showLoggedInButtons();
 
   closeLogin();
@@ -402,7 +430,6 @@ socket.on("session-result", (result) => {
 
   console.log("Session restored:", result.username);
 
-  // Logged-in users always start in the current room.
   joinRoom();
 });
 
@@ -613,7 +640,6 @@ socket.on("login-result", (result) => {
 
   loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
 
-  // Login disappears and Logout takes its place.
   showLoggedInButtons();
 
   closeLogin();
@@ -628,7 +654,6 @@ socket.on("login-result", (result) => {
 
   console.log("Logged in:", result.username, "Database ID:", result.userId);
 
-  // A successful login always places the user in the current room.
   joinRoom();
 });
 
@@ -704,7 +729,6 @@ if (logoutButton) {
 
     loginStatusText.textContent = "🔴 Not logged in";
 
-    // Logout disappears and Login returns to the same button position.
     showLoggedOutButtons();
 
     closeLogin();
@@ -1631,6 +1655,18 @@ function ensureRemoteVideo(userId, userName, stream) {
 
     video.playsInline = true;
 
+    video.muted = true;
+
+    video.setAttribute("autoplay", "");
+
+    video.setAttribute("playsinline", "");
+
+    video.style.width = "100%";
+
+    video.style.height = "100%";
+
+    video.style.objectFit = "cover";
+
     container.appendChild(video);
 
     const closeButton = document.createElement("button");
@@ -1680,15 +1716,28 @@ function showRemoteVideo(userId) {
 
   const video = document.getElementById(`video-${userId}`);
 
-  if (container) {
-    container.style.display = "block";
+  const stream = remoteStreams[userId];
+
+  if (!container || !video || !stream) {
+    console.warn("Remote video stream is not ready:", userId);
+
+    return;
   }
 
-  if (video) {
-    video.play().catch((error) => {
-      console.error("Could not play remote video:", error);
-    });
+  // Always attach the most recent remote stream before showing it.
+  if (video.srcObject !== stream) {
+    video.srcObject = stream;
   }
+
+  // The click on the camera icon is a user gesture, so we can safely
+  // enable remote audio and start playback here.
+  video.muted = false;
+
+  container.style.display = "block";
+
+  video.play().catch((error) => {
+    console.error("Could not play remote video:", error);
+  });
 }
 
 function hideRemoteVideo(userId) {
