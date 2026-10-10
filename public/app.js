@@ -113,7 +113,7 @@ const sendButton = document.getElementById("sendButton");
 
 const pathParts = window.location.pathname.split("/");
 
-const roomId =
+let roomId =
   pathParts[1] === "room" && pathParts[2]
     ? decodeURIComponent(pathParts[2])
     : "general";
@@ -153,6 +153,8 @@ const remoteNames = {};
 const roomPeople = {};
 
 const cameraWatchers = {};
+
+const cameraWatchRequests = {};
 
 // =========================================
 // AUTHENTICATED UI
@@ -666,11 +668,12 @@ function joinRoom() {
   console.log("Joining room:", roomId, "as", username);
 
   // Add ourselves to the People in Room list immediately.
+  // Keep our current media state when changing rooms.
   roomPeople[socket.id] = {
     id: socket.id,
     username: username,
-    camera: false,
-    microphone: false,
+    camera: cameraOn,
+    microphone: microphoneOn,
   };
 
   updatePeopleList();
@@ -679,6 +682,13 @@ function joinRoom() {
   socket.emit("join-room", {
     roomId: roomId,
     username: username,
+  });
+
+  // Tell the new room that our existing camera/microphone state
+  // is still active. This does NOT start or stop any local media.
+  socket.emit("media-state", {
+    camera: cameraOn,
+    microphone: microphoneOn,
   });
 
   // Load the saved chat history for this room.
@@ -1167,6 +1177,31 @@ function createPeerConnection(userId, userName, initiator) {
     }
 
     ensureRemoteVideo(userId, userName, stream);
+
+    // If the user clicked the camera button before
+    // the remote stream arrived, show it now.
+    if (cameraWatchRequests[userId]) {
+      const container = document.getElementById(`video-container-${userId}`);
+
+      const video = document.getElementById(`video-${userId}`);
+
+      if (container && video) {
+        video.srcObject = stream;
+        video.muted = false;
+        container.style.display = "block";
+
+        video.play().catch((error) => {
+          console.error("Could not play remote video:", error);
+        });
+
+        console.log("I AM NOW WATCHING:", remoteNames[userId] || userId);
+
+        socket.emit("camera-watching", {
+          target: userId,
+          watching: true,
+        });
+      }
+    }
   };
 
   return pc;
@@ -1738,21 +1773,52 @@ function ensureRemoteVideo(userId, userName, stream) {
 }
 
 function showRemoteVideo(userId) {
-  const container = document.getElementById(`video-container-${userId}`);
+  console.log("Camera button clicked for:", userId);
 
-  const video = document.getElementById(`video-${userId}`);
+  // Remember that this user wants to watch this camera.
+  cameraWatchRequests[userId] = true;
 
   const stream = remoteStreams[userId];
 
-  if (!container || !video || !stream) {
-    console.warn("Remote video stream is not ready:", userId);
+  // If the WebRTC connection doesn't exist yet,
+  // start it now.
+  if (!peerConnections[userId]) {
+    const userName = remoteNames[userId] || "User";
+
+    console.log("Starting remote camera connection for:", userName);
+
+    startConnection(userId, userName);
 
     return;
   }
 
-  if (video.srcObject !== stream) {
-    video.srcObject = stream;
+  // The connection exists, but the media stream hasn't arrived yet.
+  // ontrack will finish showing it when it arrives.
+  if (!stream) {
+    console.log("Waiting for remote camera stream:", userId);
+
+    return;
   }
+
+  let container = document.getElementById(`video-container-${userId}`);
+
+  let video = document.getElementById(`video-${userId}`);
+
+  // Create the video tile if it doesn't exist yet.
+  if (!container || !video) {
+    ensureRemoteVideo(userId, remoteNames[userId] || "User", stream);
+
+    container = document.getElementById(`video-container-${userId}`);
+
+    video = document.getElementById(`video-${userId}`);
+  }
+
+  if (!container || !video) {
+    console.warn("Could not create remote video:", userId);
+    return;
+  }
+
+  video.srcObject = stream;
 
   video.muted = false;
 
@@ -1771,6 +1837,8 @@ function showRemoteVideo(userId) {
 }
 
 function hideRemoteVideo(userId) {
+  delete cameraWatchRequests[userId];
+
   const container = document.getElementById(`video-container-${userId}`);
 
   if (container) {
@@ -2037,17 +2105,84 @@ roomRows.forEach((roomRow) => {
       return;
     }
 
+    const destinationUrl = new URL(destination, window.location.origin);
+
+    const pathParts = destinationUrl.pathname.split("/");
+
+    const newRoomId =
+      pathParts[1] === "room" && pathParts[2]
+        ? decodeURIComponent(pathParts[2])
+        : "general";
+
+    if (newRoomId === roomId) {
+      event.preventDefault();
+      return;
+    }
+
     event.preventDefault();
 
-    console.log("Leaving room before navigation:", roomId);
+    console.log("Switching rooms:", roomId, "->", newRoomId);
 
+    // IMPORTANT:
+    // Do not call stopAllMedia() here.
+    // The local camera, microphone, and screen share stay running.
     inRoom = false;
 
-    socket.emit("leave-room");
+    // Close only the old room's remote WebRTC connections.
+    Object.keys(peerConnections).forEach((remoteUserId) => {
+      const pc = peerConnections[remoteUserId];
 
-    setTimeout(() => {
-      window.location.href = destination;
-    }, 150);
+      if (pc) {
+        pc.close();
+      }
+
+      delete peerConnections[remoteUserId];
+    });
+
+    // Remove old remote streams and names.
+    Object.keys(remoteStreams).forEach((remoteUserId) => {
+      delete remoteStreams[remoteUserId];
+    });
+
+    Object.keys(remoteNames).forEach((remoteUserId) => {
+      delete remoteNames[remoteUserId];
+    });
+
+    // Clear old room people and camera watchers.
+    Object.keys(roomPeople).forEach((remoteUserId) => {
+      delete roomPeople[remoteUserId];
+    });
+
+    Object.keys(cameraWatchers).forEach((watcherId) => {
+      delete cameraWatchers[watcherId];
+    });
+
+    // Remove old remote video tiles.
+    // Keep our local camera tile.
+    videos.querySelectorAll(".video-container").forEach((container) => {
+      if (container.id !== "local-video-container") {
+        container.remove();
+      }
+    });
+
+    // Clear the old room's chat immediately.
+    messages.innerHTML = "";
+
+    updatePeopleList();
+    updateWatchingList();
+
+    // Change the room without reloading the webpage.
+    // This is what keeps the local camera alive.
+    roomId = newRoomId;
+
+    window.history.pushState({}, "", destinationUrl.pathname);
+
+    updateRoomInfo();
+    highlightCurrentRoom();
+
+    // Join the new room using the same socket
+    // and the same local media.
+    joinRoom();
   });
 });
 
