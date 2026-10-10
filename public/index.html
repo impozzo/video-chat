@@ -125,6 +125,23 @@
         background: #922b2b;
       }
 
+      /* =========================================
+         LOGGED-OUT PAGE
+         ========================================= */
+
+      .requires-login {
+        display: none !important;
+      }
+
+      #topBar.logged-out {
+        display: flex;
+        justify-content: center;
+      }
+
+      #topBar.logged-out #topBarRight {
+        justify-content: center;
+      }
+
       #loginStatus {
         margin: 0;
         padding: 0;
@@ -830,14 +847,14 @@
          TOP
          ========================================= -->
 
-    <div id="topBar">
-      <div id="topBarLeft">
+    <div id="topBar" class="logged-out">
+      <div id="topBarLeft" class="requires-login">
         <div id="loginStatus">
           <span id="loginStatusText">🔴 Not logged in</span>
         </div>
       </div>
 
-      <div id="topBarCenter">
+      <div id="topBarCenter" class="requires-login">
         <h1>Video Chat Room</h1>
       </div>
 
@@ -904,7 +921,7 @@
          ROOM SELECTION
          ========================================= -->
 
-    <div id="roomSelection">
+    <div id="roomSelection" class="requires-login">
       <div class="current-room-bar">
         <div id="roomInfo"></div>
 
@@ -968,7 +985,7 @@
          PEOPLE
          ========================================= -->
 
-    <div id="peopleBox">
+    <div id="peopleBox" class="requires-login">
       <h2 id="peopleTitle">People in Room (0)</h2>
 
       <div id="peopleList"></div>
@@ -982,13 +999,13 @@
          VIDEOS
          ========================================= -->
 
-    <div id="videos"></div>
+    <div id="videos" class="requires-login"></div>
 
     <!-- =========================================
          CONTROLS
          ========================================= -->
 
-    <div id="controls">
+    <div id="controls" class="requires-login">
       <button id="muteButton" disabled>🎤 Mic On</button>
 
       <button id="cameraButton" disabled>📹 Camera On</button>
@@ -1000,7 +1017,7 @@
          CHAT
          ========================================= -->
 
-    <div id="chat">
+    <div id="chat" class="requires-login">
       <h2>💬 Chat</h2>
 
       <div id="messages"></div>

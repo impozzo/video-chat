@@ -29,6 +29,8 @@ const registerButton = document.getElementById("registerButton");
 
 const registrationMessage = document.getElementById("registrationMessage");
 
+const closeAccountButton = document.getElementById("closeAccountButton");
+
 // =========================================
 // LOGIN
 // =========================================
@@ -43,31 +45,39 @@ const loginButton = document.getElementById("loginButton");
 
 const loginMessage = document.getElementById("loginMessage");
 
-const loginStatus = document.getElementById("loginStatus");
+const closeLoginButton = document.getElementById("closeLoginButton");
+
+// =========================================
+// TOP BAR
+// =========================================
+
+const topBar = document.getElementById("topBar");
+
+const topBarLeft = document.getElementById("topBarLeft");
+
+const topBarCenter = document.getElementById("topBarCenter");
+
+const topBarRight = document.getElementById("topBarRight");
 
 const loginStatusText = document.getElementById("loginStatusText");
-
-// =========================================
-// VIDEO
-// =========================================
-
-const videos = document.getElementById("videos");
-
-// =========================================
-// CHAT
-// =========================================
-
-const messages = document.getElementById("messages");
-
-const messageInput = document.getElementById("messageInput");
-
-const sendButton = document.getElementById("sendButton");
 
 // =========================================
 // ROOM
 // =========================================
 
+const roomSelection = document.getElementById("roomSelection");
+
 const roomInfo = document.getElementById("roomInfo");
+
+const copyLinkButton = document.getElementById("copyLinkButton");
+
+const roomRows = document.querySelectorAll(".room-row");
+
+// =========================================
+// PEOPLE
+// =========================================
+
+const peopleBox = document.getElementById("peopleBox");
 
 const peopleList = document.getElementById("peopleList");
 
@@ -77,207 +87,99 @@ const watchingList = document.getElementById("watchingList");
 
 const watchingTitle = document.getElementById("watchingTitle");
 
-const copyLinkButton = document.getElementById("copyLinkButton");
-
 // =========================================
-// ROOM COUNTS
+// VIDEO
 // =========================================
 
-const roomRows = document.querySelectorAll(".room-row");
+const videos = document.getElementById("videos");
 
-socket.on("room-counts", (counts) => {
-  roomRows.forEach((roomRow) => {
-    const roomName = roomRow.dataset.room;
+const controls = document.getElementById("controls");
 
-    const usersElement = roomRow.querySelector(".room-users");
+// =========================================
+// CHAT
+// =========================================
 
-    const count = counts[roomName] || 0;
+const chat = document.getElementById("chat");
 
-    if (usersElement) {
-      usersElement.textContent = count;
-    }
-  });
+const messages = document.getElementById("messages");
 
-  if (roomInfo) {
-    const currentCount = counts[roomId] || 0;
+const messageInput = document.getElementById("messageInput");
 
-    const peopleWord = currentCount === 1 ? "person" : "people";
-
-    roomInfo.textContent = `Room: ${roomId} — ${currentCount} ${peopleWord}`;
-  }
-});
+const sendButton = document.getElementById("sendButton");
 
 // =========================================
 // ROOM ID
 // =========================================
 
-const pathParts = window.location.pathname.split("/").filter(Boolean);
+const pathParts = window.location.pathname.split("/");
 
 const roomId =
-  pathParts[0] === "room" && pathParts[1] ? pathParts[1] : "general";
-
-if (roomInfo) {
-  roomInfo.textContent = `Room: ${roomId}`;
-}
+  pathParts[1] === "room" && pathParts[2]
+    ? decodeURIComponent(pathParts[2])
+    : "general";
 
 // =========================================
-// HIGHLIGHT CURRENT ROOM
-// =========================================
-
-function highlightCurrentRoom() {
-  roomRows.forEach((roomRow) => {
-    const isCurrentRoom = roomRow.dataset.room === roomId;
-
-    roomRow.classList.toggle("current-room", isCurrentRoom);
-
-    roomRow.setAttribute("aria-current", isCurrentRoom ? "page" : "false");
-  });
-}
-
-const currentRoomStyle = document.createElement("style");
-
-currentRoomStyle.textContent = `
-  .room-row.current-room {
-    outline: 2px solid #4da3ff;
-    outline-offset: -2px;
-    background: rgba(77, 163, 255, 0.18);
-    font-weight: 700;
-  }
-`;
-
-document.head.appendChild(currentRoomStyle);
-
-highlightCurrentRoom();
-
-// =========================================
-// ACCOUNT STATE
+// STATE
 // =========================================
 
 let username = "";
 
+let userId = null;
+
 let loggedIn = false;
 
-let loggedInUserId = null;
-
-// IMPORTANT:
-// sessionStorage is per browser tab/window.
-// This prevents multiple windows from sharing
-// the same login session.
-
-let sessionToken = sessionStorage.getItem("sessionToken");
-
-// =========================================
-// MEDIA
-// =========================================
-
-let localStream = new MediaStream();
-
-let peerConnections = {};
-
-let remoteNames = {};
-
-let remoteStreams = {};
-
-let roomPeople = {};
-
-let cameraWatchers = {};
-
-let microphoneOn = false;
+let inRoom = false;
 
 let cameraOn = false;
 
-let screenSharing = false;
+let microphoneOn = false;
 
-let screenTrack = null;
+let screenSharing = false;
 
 let cameraTrack = null;
 
 let microphoneTrack = null;
 
+let screenTrack = null;
+
+let localStream = new MediaStream();
+
+const peerConnections = {};
+
+const remoteStreams = {};
+
+const remoteNames = {};
+
+const roomPeople = {};
+
+const cameraWatchers = {};
+
 // =========================================
-// ACCOUNT UI HELPERS
+// AUTHENTICATED UI
 // =========================================
 
-function closeLogin() {
-  if (loginArea) {
-    loginArea.style.display = "none";
-  }
+function setAuthenticatedUI(isAuthenticated) {
+  const authenticatedElements = [
+    topBarLeft,
+    topBarCenter,
+    roomSelection,
+    peopleBox,
+    videos,
+    controls,
+    chat,
+  ];
 
-  if (topLoginButton) {
-    topLoginButton.textContent = "Login";
-  }
-}
+  authenticatedElements.forEach((element) => {
+    if (!element) {
+      return;
+    }
 
-function openLogin() {
-  if (!loginArea) {
-    return;
-  }
-
-  if (accountArea) {
-    accountArea.style.display = "none";
-  }
-
-  if (topCreateAccountButton) {
-    topCreateAccountButton.textContent = "Create Account";
-  }
-
-  loginArea.style.display = "block";
-
-  if (topLoginButton) {
-    topLoginButton.textContent = "Close Login";
-  }
-
-  loginArea.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
+    element.classList.toggle("requires-login", !isAuthenticated);
   });
 
-  setTimeout(() => {
-    if (loginUsernameInput) {
-      loginUsernameInput.focus();
-    }
-  }, 300);
-}
-
-function closeAccount() {
-  if (accountArea) {
-    accountArea.style.display = "none";
+  if (topBar) {
+    topBar.classList.toggle("logged-out", !isAuthenticated);
   }
-
-  if (topCreateAccountButton) {
-    topCreateAccountButton.textContent = "Create Account";
-  }
-}
-
-function openAccount() {
-  if (!accountArea) {
-    return;
-  }
-
-  if (loginArea) {
-    loginArea.style.display = "none";
-  }
-
-  if (topLoginButton) {
-    topLoginButton.textContent = "Login";
-  }
-
-  accountArea.style.display = "block";
-
-  if (topCreateAccountButton) {
-    topCreateAccountButton.textContent = "Close Account";
-  }
-
-  accountArea.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-  });
-
-  setTimeout(() => {
-    if (registerUsernameInput) {
-      registerUsernameInput.focus();
-    }
-  }, 300);
 }
 
 // =========================================
@@ -292,21 +194,28 @@ function showLoggedInButtons() {
   if (logoutButton) {
     logoutButton.style.display = "inline-block";
   }
+
+  if (loginStatusText) {
+    loginStatusText.textContent = `🟢 Logged in as ${username}`;
+  }
 }
 
 function showLoggedOutButtons() {
+  if (topLoginButton) {
+    topLoginButton.style.display = "inline-block";
+  }
+
   if (logoutButton) {
     logoutButton.style.display = "none";
   }
 
-  if (topLoginButton) {
-    topLoginButton.style.display = "inline-block";
-    topLoginButton.textContent = "Login";
+  if (loginStatusText) {
+    loginStatusText.textContent = "🔴 Not logged in";
   }
 }
 
 // =========================================
-// HIDE ACCOUNT FORMS WHEN PAGE LOADS
+// INITIAL UI
 // =========================================
 
 closeLogin();
@@ -315,132 +224,438 @@ closeAccount();
 
 showLoggedOutButtons();
 
+setAuthenticatedUI(false);
+
 // =========================================
-// TOP LOGIN BUTTON
+// LOGIN AREA
 // =========================================
+
+function openLogin() {
+  if (!loginArea) {
+    return;
+  }
+
+  loginArea.style.display = "block";
+
+  if (loginUsernameInput) {
+    loginUsernameInput.focus();
+  }
+}
+
+function closeLogin() {
+  if (loginArea) {
+    loginArea.style.display = "none";
+  }
+
+  if (loginMessage) {
+    loginMessage.textContent = "";
+  }
+}
 
 if (topLoginButton) {
   topLoginButton.addEventListener("click", () => {
-    if (loggedIn) {
-      return;
-    }
+    closeAccount();
+    openLogin();
+  });
+}
 
-    if (loginArea && loginArea.style.display === "block") {
-      closeLogin();
-    } else {
-      openLogin();
-    }
+if (closeLoginButton) {
+  closeLoginButton.addEventListener("click", () => {
+    closeLogin();
   });
 }
 
 // =========================================
-// TOP CREATE ACCOUNT BUTTON
+// ACCOUNT AREA
 // =========================================
+
+function openAccount() {
+  if (!accountArea) {
+    return;
+  }
+
+  accountArea.style.display = "block";
+
+  if (registerUsernameInput) {
+    registerUsernameInput.focus();
+  }
+}
+
+function closeAccount() {
+  if (accountArea) {
+    accountArea.style.display = "none";
+  }
+
+  if (registrationMessage) {
+    registrationMessage.textContent = "";
+  }
+}
 
 if (topCreateAccountButton) {
   topCreateAccountButton.addEventListener("click", () => {
-    if (loggedIn) {
-      return;
-    }
-
-    if (accountArea && accountArea.style.display === "block") {
-      closeAccount();
-    } else {
-      openAccount();
-    }
+    closeLogin();
+    openAccount();
   });
 }
+
+if (closeAccountButton) {
+  closeAccountButton.addEventListener("click", () => {
+    closeAccount();
+  });
+}
+
+// =========================================
+// REGISTER ACCOUNT
+// =========================================
+
+if (registerButton) {
+  registerButton.addEventListener("click", registerAccount);
+}
+
+async function registerAccount() {
+  const newUsername = registerUsernameInput.value.trim();
+
+  const password = registerPasswordInput.value;
+
+  if (!newUsername || !password) {
+    registrationMessage.textContent = "Enter a username and password.";
+
+    return;
+  }
+
+  registrationMessage.textContent = "Creating account...";
+
+  socket.emit("register-user", {
+    username: newUsername,
+    password: password,
+  });
+}
+
+// =========================================
+// REGISTER RESULT
+// =========================================
+
+socket.on("registration-result", (result) => {
+  console.log("Registration result:", result);
+
+  if (!result.success) {
+    if (registrationMessage) {
+      registrationMessage.textContent =
+        result.message || "Unable to create account.";
+    }
+
+    console.log("Registration failed:", result.message);
+    return;
+  }
+
+  // Registration succeeded
+  loggedIn = true;
+
+  username = result.username;
+
+  userId = result.userId;
+
+  // Save the session token so changing rooms keeps us logged in.
+  if (result.sessionToken) {
+    sessionStorage.setItem("sessionToken", result.sessionToken);
+  }
+
+  // Close the account and login panels
+  closeAccount();
+  closeLogin();
+
+  // Show the logged-in interface
+  showLoggedInButtons();
+  setAuthenticatedUI(true);
+
+  // Clear registration fields
+  if (registerUsernameInput) {
+    registerUsernameInput.value = "";
+  }
+
+  if (registerPasswordInput) {
+    registerPasswordInput.value = "";
+  }
+
+  // Update the room
+  updateRoomInfo();
+
+  // Join the current room
+  joinRoom();
+
+  console.log("Account created and logged in:", username);
+});
 
 // =========================================
 // RESTORE SESSION
 // =========================================
 
-socket.on("connect", () => {
-  console.log("Socket connected.");
+const savedSessionToken = sessionStorage.getItem("sessionToken");
 
-  const savedToken = sessionStorage.getItem("sessionToken");
-
-  if (!savedToken) {
-    return;
-  }
-
-  sessionToken = savedToken;
-
-  socket.emit("restore-session", {
-    token: savedToken,
-  });
-});
+if (savedSessionToken) {
+  socket.emit("restore-session", { token: savedSessionToken });
+}
 
 // =========================================
-// SESSION RESTORED
+// SESSION RESTORE RESULT
 // =========================================
 
 socket.on("session-result", (result) => {
   if (!result.success) {
     sessionStorage.removeItem("sessionToken");
 
-    sessionToken = null;
-
     loggedIn = false;
-
-    loggedInUserId = null;
 
     username = "";
 
-    if (loginStatusText) {
-      loginStatusText.textContent = "🔴 Not logged in";
-    }
+    userId = null;
 
     showLoggedOutButtons();
 
-    closeLogin();
-
-    closeAccount();
+    setAuthenticatedUI(false);
 
     return;
   }
 
   loggedIn = true;
 
-  loggedInUserId = result.userId;
-
   username = result.username;
 
-  if (loginUsernameInput) {
-    loginUsernameInput.disabled = true;
-  }
-
-  if (loginPasswordInput) {
-    loginPasswordInput.disabled = true;
-  }
-
-  if (loginButton) {
-    loginButton.disabled = true;
-  }
-
-  if (loginStatusText) {
-    loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
-  }
+  userId = result.userId;
 
   showLoggedInButtons();
+
+  setAuthenticatedUI(true);
 
   closeLogin();
 
   closeAccount();
 
-  console.log("Session restored:", result.username);
+  updateRoomInfo();
 
   joinRoom();
 });
 
 // =========================================
-// ROOM MEMBERSHIP
+// LOGIN
 // =========================================
 
-let inRoom = false;
+if (loginButton) {
+  loginButton.addEventListener("click", loginAccount);
+}
+
+async function loginAccount() {
+  const loginUsername = loginUsernameInput.value.trim();
+
+  const password = loginPasswordInput.value;
+
+  if (!loginUsername || !password) {
+    loginMessage.textContent = "Enter your username and password.";
+
+    return;
+  }
+
+  loginMessage.textContent = "Logging in...";
+
+  socket.emit("login-user", {
+    username: loginUsername,
+    password: password,
+  });
+}
+
+// =========================================
+// LOGIN RESULT
+// =========================================
+
+socket.on("login-result", (result) => {
+  if (!result.success) {
+    loggedIn = false;
+
+    showLoggedOutButtons();
+
+    setAuthenticatedUI(false);
+
+    loginMessage.textContent = result.message || "Login failed.";
+
+    return;
+  }
+
+  loggedIn = true;
+
+  username = result.username;
+
+  userId = result.userId;
+
+  if (result.sessionToken) {
+    sessionStorage.setItem("sessionToken", result.sessionToken);
+  }
+
+  showLoggedInButtons();
+
+  setAuthenticatedUI(true);
+
+  closeLogin();
+
+  closeAccount();
+
+  loginPasswordInput.value = "";
+
+  updateRoomInfo();
+
+  joinRoom();
+});
+
+// =========================================
+// LOGOUT
+// =========================================
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", logout);
+}
+
+function logout() {
+  if (!loggedIn) {
+    return;
+  }
+
+  console.log("Logging out...");
+
+  if (inRoom) {
+    socket.emit("leave-room");
+
+    inRoom = false;
+  }
+
+  stopAllMedia();
+
+  Object.keys(peerConnections).forEach((remoteUserId) => {
+    const pc = peerConnections[remoteUserId];
+
+    if (pc) {
+      pc.close();
+    }
+
+    delete peerConnections[remoteUserId];
+  });
+
+  Object.keys(remoteStreams).forEach((remoteUserId) => {
+    delete remoteStreams[remoteUserId];
+  });
+
+  Object.keys(remoteNames).forEach((remoteUserId) => {
+    delete remoteNames[remoteUserId];
+  });
+
+  Object.keys(roomPeople).forEach((remoteUserId) => {
+    delete roomPeople[remoteUserId];
+  });
+
+  Object.keys(cameraWatchers).forEach((remoteUserId) => {
+    delete cameraWatchers[remoteUserId];
+  });
+
+  messages.innerHTML = "";
+
+  updatePeopleList();
+
+  updateWatchingList();
+
+  socket.emit("logout-user");
+
+  sessionStorage.removeItem("sessionToken");
+
+  loggedIn = false;
+
+  username = "";
+
+  userId = null;
+
+  showLoggedOutButtons();
+
+  setAuthenticatedUI(false);
+
+  closeLogin();
+
+  closeAccount();
+
+  loginPasswordInput.value = "";
+
+  console.log("Logged out.");
+}
+
+// =========================================
+// LOGOUT RESULT
+// =========================================
+
+socket.on("logout-result", (result) => {
+  console.log("Logout result:", result);
+});
+
+// =========================================
+// ROOM INFO
+// =========================================
+
+function updateRoomInfo() {
+  if (!roomInfo) {
+    return;
+  }
+
+  roomInfo.textContent = `Room: ${roomId}`;
+}
+
+updateRoomInfo();
+
+// =========================================
+// ROOM COUNTS
+// =========================================
+
+socket.on("room-counts", (counts) => {
+  console.log("Room counts received:", counts);
+
+  roomRows.forEach((roomRow) => {
+    const roomName = roomRow.dataset.room;
+    const countElement = roomRow.querySelector(".room-users");
+
+    if (!countElement) {
+      return;
+    }
+
+    const count = counts[roomName] || 0;
+
+    countElement.textContent = `${count} user${count === 1 ? "" : "s"}`;
+  });
+});
+
+// =========================================
+// COPY ROOM LINK
+// =========================================
+
+if (copyLinkButton) {
+  copyLinkButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+
+      copyLinkButton.textContent = "✓ Link Copied";
+
+      setTimeout(() => {
+        copyLinkButton.textContent = "Copy Room Link";
+      }, 1500);
+    } catch (error) {
+      console.error("Could not copy room link:", error);
+    }
+  });
+}
+
+// =========================================
+// JOIN ROOM
+// =========================================
 
 function joinRoom() {
-  if (!loggedIn || inRoom) {
+  if (!loggedIn) {
+    return;
+  }
+
+  if (inRoom) {
     return;
   }
 
@@ -448,12 +663,25 @@ function joinRoom() {
     return;
   }
 
+  console.log("Joining room:", roomId, "as", username);
+
+  // Add ourselves to the People in Room list immediately.
+  roomPeople[socket.id] = {
+    id: socket.id,
+    username: username,
+    camera: false,
+    microphone: false,
+  };
+
+  updatePeopleList();
+
+  // Join the room.
   socket.emit("join-room", {
     roomId: roomId,
-
     username: username,
   });
 
+  // Load the saved chat history for this room.
   socket.emit("get-chat-history", {
     roomId: roomId,
   });
@@ -476,509 +704,76 @@ function joinRoom() {
 }
 
 // =========================================
-// REGISTER ACCOUNT
+// ROOM JOINED
 // =========================================
 
-if (registerButton) {
-  registerButton.addEventListener("click", registerAccount);
-}
+socket.on("joined-room", (data) => {
+  console.log("Joined room:", data);
 
-if (registerPasswordInput) {
-  registerPasswordInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      registerAccount();
-    }
-  });
-}
+  inRoom = true;
 
-function registerAccount() {
-  const registerUsername = registerUsernameInput.value.trim();
+  if (data.users) {
+    data.users.forEach((user) => {
+      roomPeople[user.id] = {
+        id: user.id,
+        username: user.username,
+        camera: user.camera || false,
+        microphone: user.microphone || false,
+      };
 
-  const password = registerPasswordInput.value;
-
-  if (!registerUsername) {
-    registrationMessage.textContent = "Please enter a username.";
-
-    return;
+      if (user.id !== socket.id) {
+        remoteNames[user.id] = user.username;
+      }
+    });
   }
 
-  if (!password) {
-    registrationMessage.textContent = "Please enter a password.";
+  updatePeopleList();
 
-    return;
-  }
-
-  if (password.length < 6) {
-    registrationMessage.textContent = "Password must be at least 6 characters.";
-
-    return;
-  }
-
-  registrationMessage.textContent = "Creating account...";
-
-  registerButton.disabled = true;
-
-  socket.emit("register-user", {
-    username: registerUsername,
-
-    password: password,
-  });
-}
-
-// =========================================
-// REGISTRATION RESULT
-// =========================================
-
-socket.on("registration-result", (result) => {
-  registerButton.disabled = false;
-
-  if (result.success) {
-    const successMessage = "Account created successfully. Please log in.";
-
-    registerUsernameInput.value = "";
-
-    registerPasswordInput.value = "";
-
-    closeAccount();
-
-    openLogin();
-
-    loginUsernameInput.value = result.username;
-
-    loginPasswordInput.value = "";
-
-    loginMessage.textContent = successMessage;
-
-    setTimeout(() => {
-      loginPasswordInput.focus();
-    }, 350);
-  } else {
-    registrationMessage.textContent = result.message;
-  }
-});
-
-// =========================================
-// LOGIN
-// =========================================
-
-if (loginButton) {
-  loginButton.addEventListener("click", loginAccount);
-}
-
-if (loginPasswordInput) {
-  loginPasswordInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      loginAccount();
-    }
-  });
-}
-
-function loginAccount() {
-  const loginUsername = loginUsernameInput.value.trim();
-
-  const password = loginPasswordInput.value;
-
-  if (!loginUsername) {
-    loginMessage.textContent = "Please enter a username.";
-
-    return;
-  }
-
-  if (!password) {
-    loginMessage.textContent = "Please enter a password.";
-
-    return;
-  }
-
-  loginMessage.textContent = "Logging in...";
-
-  loginButton.disabled = true;
-
-  socket.emit("login-user", {
-    username: loginUsername,
-
-    password: password,
-  });
-}
-
-// =========================================
-// LOGIN RESULT
-// =========================================
-
-socket.on("login-result", (result) => {
-  if (!result.success) {
-    loginButton.disabled = false;
-
-    loggedIn = false;
-
-    loggedInUserId = null;
-
-    if (loginStatusText) {
-      loginStatusText.textContent = "🔴 Not logged in";
-    }
-
-    showLoggedOutButtons();
-
-    loginMessage.textContent = result.message;
-
-    return;
-  }
-
-  loggedIn = true;
-
-  loggedInUserId = result.userId;
-
-  username = result.username;
-
-  loginUsernameInput.disabled = true;
-
-  loginPasswordInput.disabled = true;
-
-  loginButton.disabled = true;
-
-  loginMessage.textContent = "Login successful.";
-
-  loginStatusText.textContent = `🟢 Logged in as ${result.username}`;
-
-  showLoggedInButtons();
-
-  closeLogin();
-
-  closeAccount();
-
-  if (result.sessionToken) {
-    sessionToken = result.sessionToken;
-
-    sessionStorage.setItem("sessionToken", result.sessionToken);
-  }
-
-  console.log("Logged in:", result.username, "Database ID:", result.userId);
-
-  joinRoom();
-});
-
-// =========================================
-// LOGOUT
-// =========================================
-
-if (logoutButton) {
-  logoutButton.addEventListener("click", () => {
-    if (inRoom) {
-      socket.emit("leave-room");
-
-      inRoom = false;
-    }
-
-    if (cameraTrack) {
-      cameraTrack.stop();
-
-      cameraTrack = null;
-    }
-
-    if (microphoneTrack) {
-      microphoneTrack.stop();
-
-      microphoneTrack = null;
-    }
-
-    if (screenTrack) {
-      screenTrack.stop();
-
-      screenTrack = null;
-    }
-
-    localStream = new MediaStream();
-
-    cameraOn = false;
-
-    microphoneOn = false;
-
-    screenSharing = false;
-
-    cameraWatchers = {};
-
-    updateWatchingList();
-
+  if (data.chatHistory) {
     messages.innerHTML = "";
 
-    socket.emit("logout-user");
+    data.chatHistory.forEach(
+      ({ username: senderUsername, message, created_at }) => {
+        const messageElement = createChatMessage(
+          senderUsername,
+          message,
+          created_at,
+        );
 
-    sessionStorage.removeItem("sessionToken");
+        messages.appendChild(messageElement);
+      },
+    );
 
-    sessionToken = null;
-
-    loggedIn = false;
-
-    loggedInUserId = null;
-
-    username = "";
-
-    loginUsernameInput.value = "";
-
-    loginPasswordInput.value = "";
-
-    loginUsernameInput.disabled = false;
-
-    loginPasswordInput.disabled = false;
-
-    loginButton.disabled = false;
-
-    loginMessage.textContent = "";
-
-    registrationMessage.textContent = "";
-
-    loginStatusText.textContent = "🔴 Not logged in";
-
-    showLoggedOutButtons();
-
-    closeLogin();
-
-    closeAccount();
-
-    console.log("Logged out.");
-  });
-}
-
-// =========================================
-// JOIN ERROR
-// =========================================
-
-socket.on("join-error", (result) => {
-  alert(result.message);
-
-  inRoom = false;
-
-  if (muteButton) {
-    muteButton.disabled = true;
-  }
-
-  if (cameraButton) {
-    cameraButton.disabled = true;
-  }
-
-  if (screenButton) {
-    screenButton.disabled = true;
+    messages.scrollTop = messages.scrollHeight;
   }
 });
 
 // =========================================
-// COPY ROOM LINK
-// =========================================
-
-if (copyLinkButton) {
-  copyLinkButton.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-
-      copyLinkButton.textContent = "✓ Link Copied!";
-
-      setTimeout(() => {
-        copyLinkButton.textContent = "🔗 Copy Room Link";
-      }, 2000);
-    } catch (error) {
-      console.error("Could not copy room link:", error);
-
-      alert("Could not copy the room link.");
-    }
-  });
-}
-
-// =========================================
-// PEOPLE IN ROOM
-// =========================================
-
-function updatePeopleList() {
-  peopleList.innerHTML = "";
-
-  const peopleCount = Object.keys(roomPeople).length;
-
-  peopleTitle.textContent = `People in Room (${peopleCount})`;
-
-  Object.values(roomPeople).forEach((person) => {
-    const div = document.createElement("div");
-
-    div.className = "person";
-
-    const nameSpan = document.createElement("span");
-
-    nameSpan.className = "person-name";
-
-    if (person.id === socket.id) {
-      nameSpan.textContent = `${person.username} (You)`;
-    } else {
-      nameSpan.textContent = person.username;
-    }
-
-    div.appendChild(nameSpan);
-
-    const statusArea = document.createElement("div");
-
-    statusArea.className = "person-status";
-
-    if (person.id !== socket.id) {
-      const cameraStatus = document.createElement("button");
-
-      cameraStatus.className = "status-icon camera-status";
-
-      if (person.camera) {
-        cameraStatus.textContent = "📹";
-
-        cameraStatus.title = "Show / hide camera";
-
-        cameraStatus.addEventListener("click", () => {
-          const container = document.getElementById(
-            `video-container-${person.id}`,
-          );
-
-          if (!container) {
-            return;
-          }
-
-          if (container.style.display === "none") {
-            showRemoteVideo(person.id);
-          } else {
-            hideRemoteVideo(person.id);
-          }
-        });
-      } else {
-        cameraStatus.textContent = "📹";
-
-        cameraStatus.classList.add("off");
-
-        cameraStatus.title = "Camera off";
-
-        cameraStatus.disabled = true;
-      }
-
-      statusArea.appendChild(cameraStatus);
-    }
-
-    const micStatus = document.createElement("span");
-
-    micStatus.className = "status-icon mic-status";
-
-    if (person.microphone) {
-      micStatus.textContent = "🎤";
-
-      micStatus.title = "Microphone on";
-    } else {
-      micStatus.textContent = "🔇";
-
-      micStatus.title = "Microphone off";
-    }
-
-    statusArea.appendChild(micStatus);
-
-    div.appendChild(statusArea);
-
-    peopleList.appendChild(div);
-  });
-}
-
-// =========================================
-// WATCHING MY CAMERA
-// =========================================
-
-function updateWatchingList() {
-  watchingList.innerHTML = "";
-
-  const watchers = Object.values(cameraWatchers);
-
-  watchingTitle.textContent = `Watching My Camera (${watchers.length})`;
-
-  watchers.forEach((person) => {
-    const div = document.createElement("div");
-
-    div.className = "person";
-
-    const nameSpan = document.createElement("span");
-
-    nameSpan.className = "person-name";
-
-    nameSpan.textContent = `👁️ ${person.username}`;
-
-    div.appendChild(nameSpan);
-
-    watchingList.appendChild(div);
-  });
-}
-
-// =========================================
-// CAMERA WATCHER UPDATE
-// =========================================
-
-socket.on("camera-watcher", (watcher) => {
-  if (watcher.watching) {
-    cameraWatchers[watcher.id] = {
-      id: watcher.id,
-
-      username: watcher.username,
-    };
-  } else {
-    delete cameraWatchers[watcher.id];
-  }
-
-  updateWatchingList();
-});
-
-// =========================================
-// ROOM USERS
+// EXISTING ROOM USERS
 // =========================================
 
 socket.on("room-users", (users) => {
   console.log("Existing users:", users);
 
-  roomPeople[socket.id] = {
-    id: socket.id,
-
-    username: username,
-
-    camera: cameraOn,
-
-    microphone: microphoneOn,
-  };
-
   users.forEach((user) => {
+    if (user.id === socket.id) {
+      return;
+    }
+
+    roomPeople[user.id] = {
+      id: user.id,
+      username: user.username,
+      camera: user.camera || false,
+      microphone: user.microphone || false,
+    };
+
     remoteNames[user.id] = user.username;
 
-    roomPeople[user.id] = {
-      id: user.id,
+    updatePeopleList();
 
-      username: user.username,
-
-      camera: Boolean(user.camera),
-
-      microphone: Boolean(user.microphone),
-    };
-
+    // Start the WebRTC connection with this person.
     startConnection(user.id, user.username);
   });
-
-  updatePeopleList();
-});
-
-// =========================================
-// START CONNECTION
-// =========================================
-
-socket.on("start-connection", (user) => {
-  remoteNames[user.id] = user.username;
-
-  if (!roomPeople[user.id]) {
-    roomPeople[user.id] = {
-      id: user.id,
-
-      username: user.username,
-
-      camera: Boolean(user.camera),
-
-      microphone: Boolean(user.microphone),
-    };
-  }
-
-  startConnection(user.id, user.username);
-
-  updatePeopleList();
 });
 
 // =========================================
@@ -986,19 +781,20 @@ socket.on("start-connection", (user) => {
 // =========================================
 
 socket.on("user-joined", (user) => {
-  console.log(`${user.username} joined`);
+  if (!user || user.id === socket.id) {
+    return;
+  }
 
-  remoteNames[user.id] = user.username;
+  console.log("User joined:", user);
 
   roomPeople[user.id] = {
     id: user.id,
-
     username: user.username,
-
-    camera: Boolean(user.camera),
-
-    microphone: Boolean(user.microphone),
+    camera: user.camera || false,
+    microphone: user.microphone || false,
   };
+
+  remoteNames[user.id] = user.username;
 
   updatePeopleList();
 });
@@ -1007,62 +803,259 @@ socket.on("user-joined", (user) => {
 // USER LEFT
 // =========================================
 
-socket.on("user-left", (user) => {
-  console.log(`${user.username} left`);
+socket.on("user-left", ({ id: userId, username }) => {
+  console.log("User left:", userId, username);
 
-  delete roomPeople[user.id];
+  removePeer(userId);
 
-  delete cameraWatchers[user.id];
+  delete roomPeople[userId];
 
   updatePeopleList();
-
-  updateWatchingList();
-
-  removePeer(user.id);
 });
 
 // =========================================
 // MEDIA STATE
 // =========================================
 
-socket.on("media-state", (state) => {
-  console.log(`${state.username} media state:`, state);
+socket.on("media-state", ({ id: userId, username, camera, microphone }) => {
+  if (!userId) {
+    return;
+  }
 
-  remoteNames[state.id] = state.username;
-
-  if (roomPeople[state.id]) {
-    roomPeople[state.id].camera = Boolean(state.camera);
-
-    roomPeople[state.id].microphone = Boolean(state.microphone);
-  } else {
-    roomPeople[state.id] = {
-      id: state.id,
-
-      username: state.username,
-
-      camera: Boolean(state.camera),
-
-      microphone: Boolean(state.microphone),
+  if (!roomPeople[userId]) {
+    roomPeople[userId] = {
+      id: userId,
+      username: username || remoteNames[userId] || "User",
+      camera: false,
+      microphone: false,
     };
   }
 
-  updatePeopleList();
+  roomPeople[userId].camera = !!camera;
+  roomPeople[userId].microphone = !!microphone;
 
-  if (!state.camera) {
-    hideRemoteVideo(state.id);
+  if (username) {
+    roomPeople[userId].username = username;
+    remoteNames[userId] = username;
   }
+
+  updatePeopleList();
 });
 
 // =========================================
-// CREATE PEER CONNECTION
+// REMOTE CAMERA OFF
 // =========================================
 
-function createPeerConnection(
-  userId,
-  userName,
-  createMediaTransceivers = false,
-) {
-  console.log("Creating peer connection:", userName);
+socket.on("remote-camera-off", ({ id: userId, username }) => {
+  if (!userId) {
+    return;
+  }
+
+  console.log("Remote camera turned off:", username, userId);
+
+  // Update the People in Room list.
+  if (roomPeople[userId]) {
+    roomPeople[userId].camera = false;
+  }
+
+  // Completely remove the frozen video.
+  const container = document.getElementById(`video-container-${userId}`);
+
+  const video = document.getElementById(`video-${userId}`);
+
+  if (video) {
+    video.pause();
+    video.srcObject = null;
+  }
+
+  if (container) {
+    container.remove();
+  }
+
+  // Remove the old stream reference.
+  delete remoteStreams[userId];
+
+  updatePeopleList();
+});
+
+// =========================================
+// PEOPLE LIST
+// =========================================
+
+function updatePeopleList() {
+  if (!peopleList) {
+    return;
+  }
+
+  peopleList.innerHTML = "";
+
+  const users = Object.values(roomPeople);
+
+  users.sort((a, b) => {
+    if (a.id === socket.id) {
+      return -1;
+    }
+
+    if (b.id === socket.id) {
+      return 1;
+    }
+
+    return a.username.localeCompare(b.username);
+  });
+
+  // Update the People in Room count.
+  if (peopleTitle) {
+    const count = users.length;
+    peopleTitle.textContent = `People in Room (${count})`;
+  }
+
+  users.forEach((user) => {
+    const row = document.createElement("div");
+
+    row.className = "person-row";
+
+    const name = document.createElement("span");
+
+    name.className = "person-name";
+
+    name.textContent =
+      user.id === socket.id ? `${user.username} (You)` : user.username;
+
+    row.appendChild(name);
+
+    if (user.camera) {
+      if (user.id !== socket.id) {
+        const cameraButton = document.createElement("button");
+
+        cameraButton.className = "camera-status-button";
+
+        cameraButton.textContent = "📹";
+
+        cameraButton.title = `View ${user.username}'s camera`;
+
+        cameraButton.addEventListener("click", () => {
+          showRemoteVideo(user.id);
+        });
+
+        row.appendChild(cameraButton);
+      } else {
+        const cameraStatus = document.createElement("span");
+
+        cameraStatus.className = "camera-status";
+
+        cameraStatus.textContent = "📹";
+
+        cameraStatus.title = "Your camera is on";
+
+        row.appendChild(cameraStatus);
+      }
+    }
+
+    const micStatus = document.createElement("span");
+
+    micStatus.className = "mic-status";
+
+    micStatus.textContent = user.microphone ? "🎤" : "🔇";
+
+    micStatus.title = user.microphone ? "Microphone on" : "Microphone off";
+
+    row.appendChild(micStatus);
+
+    peopleList.appendChild(row);
+  });
+}
+
+// =========================================
+// WATCHING MY CAMERA
+// =========================================
+
+function updateWatchingList() {
+  if (!watchingList) {
+    return;
+  }
+
+  watchingList.innerHTML = "";
+
+  const watcherIds = Object.keys(cameraWatchers);
+
+  if (watchingTitle) {
+    watchingTitle.textContent = `Watching My Camera (${watcherIds.length})`;
+  }
+
+  if (watcherIds.length === 0) {
+    const empty = document.createElement("div");
+
+    empty.className = "watching-empty";
+
+    empty.textContent = "Nobody is watching your camera.";
+
+    watchingList.appendChild(empty);
+
+    return;
+  }
+
+  watcherIds.forEach((watcherId) => {
+    const watcher = cameraWatchers[watcherId];
+
+    const div = document.createElement("div");
+
+    div.className = "watching-person";
+
+    div.textContent = `👁️ ${watcher.username}`;
+
+    watchingList.appendChild(div);
+  });
+}
+
+// =========================================
+// CAMERA WATCH STATUS
+// =========================================
+
+socket.on("camera-watch-status", ({ watcherId, watcherUsername, watching }) => {
+  console.log("CAMERA WATCH STATUS RECEIVED:", {
+    watcherId,
+    watcherUsername,
+    watching,
+  });
+
+  if (!watcherId) {
+    return;
+  }
+
+  if (watching) {
+    cameraWatchers[watcherId] = {
+      id: watcherId,
+      username: watcherUsername || "User",
+    };
+  } else {
+    delete cameraWatchers[watcherId];
+  }
+
+  updateWatchingList();
+});
+
+// =========================================
+// START CONNECTION
+// =========================================
+
+socket.on("start-connection", ({ userId, username: remoteUsername }) => {
+  if (userId === socket.id) {
+    return;
+  }
+
+  remoteNames[userId] = remoteUsername;
+
+  startConnection(userId, remoteUsername);
+});
+
+// =========================================
+// PEER CONNECTION
+// =========================================
+
+function createPeerConnection(userId, userName, initiator) {
+  if (peerConnections[userId]) {
+    return peerConnections[userId];
+  }
 
   const pc = new RTCPeerConnection({
     iceServers: [
@@ -1072,25 +1065,25 @@ function createPeerConnection(
     ],
   });
 
+  // Always create audio and video receive paths.
+  // This allows users to join with their camera and
+  // microphone OFF, but turn them on later.
+  pc.addTransceiver("audio", {
+    direction: "recvonly",
+  });
+
+  pc.addTransceiver("video", {
+    direction: "recvonly",
+  });
+
   peerConnections[userId] = pc;
 
   remoteNames[userId] = userName;
-
-  if (createMediaTransceivers) {
-    pc.addTransceiver("audio", {
-      direction: "sendrecv",
-    });
-
-    pc.addTransceiver("video", {
-      direction: "sendrecv",
-    });
-  }
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       socket.emit("ice-candidate", {
         target: userId,
-
         candidate: event.candidate,
       });
     }
@@ -1111,14 +1104,6 @@ function createPeerConnection(
   pc.ontrack = (event) => {
     console.log("Received media from:", userName, event.track.kind);
 
-    if (event.track.kind === "video") {
-      socket.emit("camera-watching", {
-        target: userId,
-
-        watching: true,
-      });
-    }
-
     let stream =
       event.streams && event.streams.length > 0
         ? event.streams[0]
@@ -1126,21 +1111,60 @@ function createPeerConnection(
 
     if (!stream) {
       stream = new MediaStream();
+    }
 
+    if (!stream.getTracks().includes(event.track)) {
       stream.addTrack(event.track);
     }
 
     remoteStreams[userId] = stream;
 
-    event.track.addEventListener("unmute", () => {
-      const video = document.getElementById(`video-${userId}`);
+    if (event.track.kind === "video") {
+      // The remote camera has started sending video.
+      event.track.addEventListener("unmute", () => {
+        console.log("Remote camera unmuted:", userName);
 
-      if (video) {
-        video.play().catch((error) => {
-          console.error("Remote video playback error:", error);
-        });
-      }
-    });
+        if (roomPeople[userId]) {
+          roomPeople[userId].camera = true;
+        }
+
+        updatePeopleList();
+
+        const video = document.getElementById(`video-${userId}`);
+
+        if (video) {
+          video.play().catch((error) => {
+            console.error("Remote video playback error:", error);
+          });
+        }
+      });
+
+      // THIS is the important part.
+      // When the other person's camera is turned off,
+      // the WebRTC receiver can become muted while
+      // still holding the last video frame.
+      event.track.addEventListener("mute", () => {
+        console.log("Remote camera muted:", userName);
+
+        if (roomPeople[userId]) {
+          roomPeople[userId].camera = false;
+        }
+
+        hideRemoteVideo(userId);
+        updatePeopleList();
+      });
+
+      event.track.addEventListener("ended", () => {
+        console.log("Remote camera track ended:", userName);
+
+        if (roomPeople[userId]) {
+          roomPeople[userId].camera = false;
+        }
+
+        hideRemoteVideo(userId);
+        updatePeopleList();
+      });
+    }
 
     ensureRemoteVideo(userId, userName, stream);
   };
@@ -1383,7 +1407,9 @@ async function stopCamera() {
 
   hideLocalVideo();
 
-  cameraWatchers = {};
+  Object.keys(cameraWatchers).forEach((watcherId) => {
+    delete cameraWatchers[watcherId];
+  });
 
   updateWatchingList();
 
@@ -1724,19 +1750,23 @@ function showRemoteVideo(userId) {
     return;
   }
 
-  // Always attach the most recent remote stream before showing it.
   if (video.srcObject !== stream) {
     video.srcObject = stream;
   }
 
-  // The click on the camera icon is a user gesture, so we can safely
-  // enable remote audio and start playback here.
   video.muted = false;
 
   container.style.display = "block";
 
   video.play().catch((error) => {
     console.error("Could not play remote video:", error);
+  });
+
+  console.log("I AM NOW WATCHING:", remoteNames[userId] || userId);
+
+  socket.emit("camera-watching", {
+    target: userId,
+    watching: true,
   });
 }
 
@@ -1746,6 +1776,13 @@ function hideRemoteVideo(userId) {
   if (container) {
     container.style.display = "none";
   }
+
+  console.log("I STOPPED WATCHING:", remoteNames[userId] || userId);
+
+  socket.emit("camera-watching", {
+    target: userId,
+    watching: false,
+  });
 }
 
 // =========================================
@@ -2041,3 +2078,82 @@ function removePeer(userId) {
     container.remove();
   }
 }
+
+// =========================================
+// STOP ALL MEDIA
+// =========================================
+
+function stopAllMedia() {
+  cameraOn = false;
+
+  microphoneOn = false;
+
+  screenSharing = false;
+
+  if (cameraTrack) {
+    cameraTrack.stop();
+
+    cameraTrack = null;
+  }
+
+  if (microphoneTrack) {
+    microphoneTrack.stop();
+
+    microphoneTrack = null;
+  }
+
+  if (screenTrack) {
+    screenTrack.stop();
+
+    screenTrack = null;
+  }
+
+  localStream.getTracks().forEach((track) => {
+    track.stop();
+  });
+
+  localStream = new MediaStream();
+
+  hideLocalVideo();
+
+  if (cameraButton) {
+    cameraButton.textContent = "📹 Camera On";
+  }
+
+  if (muteButton) {
+    muteButton.textContent = "🎤 Mic On";
+  }
+
+  if (screenButton) {
+    screenButton.textContent = "🖥️ Share Screen";
+  }
+}
+
+// =========================================
+// CURRENT ROOM HIGHLIGHT
+// =========================================
+
+function highlightCurrentRoom() {
+  roomRows.forEach((roomRow) => {
+    const isCurrentRoom = roomRow.dataset.room === roomId;
+
+    roomRow.classList.toggle("current-room", isCurrentRoom);
+
+    roomRow.setAttribute("aria-current", isCurrentRoom ? "page" : "false");
+  });
+}
+
+const currentRoomStyle = document.createElement("style");
+
+currentRoomStyle.textContent = `
+  .room-row.current-room {
+    outline: 2px solid #4da3ff;
+    outline-offset: -2px;
+    background: rgba(77, 163, 255, 0.18);
+    font-weight: 700;
+  }
+`;
+
+document.head.appendChild(currentRoomStyle);
+
+highlightCurrentRoom();

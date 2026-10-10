@@ -177,10 +177,17 @@ io.on("connection", (socket) => {
 
       console.log(`User registered: ${username}`);
 
+      const sessionToken = createSession(result.lastInsertRowid);
+
+      socket.sessionToken = sessionToken;
+      socket.authenticatedUserId = result.lastInsertRowid;
+      socket.authenticatedUsername = username;
+
       socket.emit("registration-result", {
         success: true,
         userId: result.lastInsertRowid,
         username: username,
+        sessionToken: sessionToken,
       });
     } catch (error) {
       if (error.message.includes("UNIQUE constraint failed")) {
@@ -463,15 +470,23 @@ io.on("connection", (socket) => {
     }
 
     user.camera = Boolean(camera);
-
     user.microphone = Boolean(microphone);
 
+    // Tell everyone else about the media change.
     socket.to(user.roomId).emit("media-state", {
       id: socket.id,
       username: user.username,
       camera: user.camera,
       microphone: user.microphone,
     });
+
+    // Explicitly tell everyone else when the camera goes OFF.
+    if (!user.camera) {
+      socket.to(user.roomId).emit("remote-camera-off", {
+        id: socket.id,
+        username: user.username,
+      });
+    }
   });
 
   // =========================================
@@ -484,20 +499,31 @@ io.on("connection", (socket) => {
     const targetUser = users[target];
 
     if (!watcher || !targetUser) {
+      console.log("Camera watching rejected:", {
+        watcher: socket.id,
+        target: target,
+      });
+
       return;
     }
 
-    socket.to(target).emit("camera-watcher", {
-      id: socket.id,
-      username: watcher.username,
-      watching: Boolean(watching),
-    });
+    if (watcher.roomId !== targetUser.roomId) {
+      console.log("Camera watching rejected: different rooms");
+
+      return;
+    }
 
     console.log(
       `${watcher.username} ${
-        watching ? "is watching" : "stopped watching"
+        watching ? "STARTED watching" : "STOPPED watching"
       } ${targetUser.username}'s camera`,
     );
+
+    io.to(target).emit("camera-watch-status", {
+      watcherId: socket.id,
+      watcherUsername: watcher.username,
+      watching: Boolean(watching),
+    });
   });
 
   // =========================================
