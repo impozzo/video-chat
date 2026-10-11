@@ -74,6 +74,37 @@ const copyLinkButton = document.getElementById("copyLinkButton");
 const roomRows = document.querySelectorAll(".room-row");
 
 // =========================================
+// LIVE ROOM COUNTS
+// =========================================
+
+function updateRoomCounts(counts = {}) {
+  roomRows.forEach((roomRow) => {
+    const roomName = roomRow.dataset.room;
+    const countElement = roomRow.querySelector(".room-users");
+
+    if (!countElement) {
+      return;
+    }
+
+    const count = Number(counts[roomName] || 0);
+    countElement.textContent = String(count);
+    countElement.setAttribute(
+      "aria-label",
+      `${count} ${count === 1 ? "person" : "people"}`,
+    );
+  });
+}
+
+socket.on("room-counts", (counts) => {
+  console.log("Room counts received:", counts);
+  updateRoomCounts(counts);
+});
+
+socket.on("connect", () => {
+  socket.emit("get-room-counts");
+});
+
+// =========================================
 // PEOPLE
 // =========================================
 
@@ -156,6 +187,10 @@ const cameraWatchers = {};
 
 const cameraWatchRequests = {};
 
+// Remote microphones are opt-in.
+// This tracks which remote users the local viewer has chosen to hear.
+const microphoneListeners = {};
+
 // =========================================
 // AUTHENTICATED UI
 // =========================================
@@ -189,28 +224,44 @@ function setAuthenticatedUI(isAuthenticated) {
 // =========================================
 
 function showLoggedInButtons() {
+  // Hide Login
   if (topLoginButton) {
     topLoginButton.style.display = "none";
   }
 
+  // Hide Create Account
+  if (topCreateAccountButton) {
+    topCreateAccountButton.style.display = "none";
+  }
+
+  // Show Logout
   if (logoutButton) {
     logoutButton.style.display = "inline-block";
   }
 
+  // Update login status
   if (loginStatusText) {
     loginStatusText.textContent = `🟢 Logged in as ${username}`;
   }
 }
 
 function showLoggedOutButtons() {
+  // Show Login
   if (topLoginButton) {
     topLoginButton.style.display = "inline-block";
   }
 
+  // Show Create Account
+  if (topCreateAccountButton) {
+    topCreateAccountButton.style.display = "inline-block";
+  }
+
+  // Hide Logout
   if (logoutButton) {
     logoutButton.style.display = "none";
   }
 
+  // Update login status
   if (loginStatusText) {
     loginStatusText.textContent = "🔴 Not logged in";
   }
@@ -350,27 +401,22 @@ socket.on("registration-result", (result) => {
     return;
   }
 
-  // Registration succeeded
   loggedIn = true;
 
   username = result.username;
 
   userId = result.userId;
 
-  // Save the session token so changing rooms keeps us logged in.
   if (result.sessionToken) {
     sessionStorage.setItem("sessionToken", result.sessionToken);
   }
 
-  // Close the account and login panels
   closeAccount();
   closeLogin();
 
-  // Show the logged-in interface
   showLoggedInButtons();
   setAuthenticatedUI(true);
 
-  // Clear registration fields
   if (registerUsernameInput) {
     registerUsernameInput.value = "";
   }
@@ -379,10 +425,8 @@ socket.on("registration-result", (result) => {
     registerPasswordInput.value = "";
   }
 
-  // Update the room
   updateRoomInfo();
 
-  // Join the current room
   joinRoom();
 
   console.log("Account created and logged in:", username);
@@ -470,22 +514,15 @@ async function loginAccount() {
 // =========================================
 
 socket.on("login-result", (result) => {
+  console.log("Login result:", result);
+
   if (!result.success) {
-    loggedIn = false;
-
-    showLoggedOutButtons();
-
-    setAuthenticatedUI(false);
-
     loginMessage.textContent = result.message || "Login failed.";
-
     return;
   }
 
   loggedIn = true;
-
   username = result.username;
-
   userId = result.userId;
 
   if (result.sessionToken) {
@@ -493,17 +530,13 @@ socket.on("login-result", (result) => {
   }
 
   showLoggedInButtons();
-
   setAuthenticatedUI(true);
-
   closeLogin();
-
   closeAccount();
 
   loginPasswordInput.value = "";
 
   updateRoomInfo();
-
   joinRoom();
 });
 
@@ -524,7 +557,6 @@ function logout() {
 
   if (inRoom) {
     socket.emit("leave-room");
-
     inRoom = false;
   }
 
@@ -540,61 +572,43 @@ function logout() {
     delete peerConnections[remoteUserId];
   });
 
-  Object.keys(remoteStreams).forEach((remoteUserId) => {
-    delete remoteStreams[remoteUserId];
-  });
+  Object.keys(remoteStreams).forEach((id) => delete remoteStreams[id]);
+  Object.keys(remoteNames).forEach((id) => delete remoteNames[id]);
+  Object.keys(roomPeople).forEach((id) => delete roomPeople[id]);
+  Object.keys(cameraWatchers).forEach((id) => delete cameraWatchers[id]);
+  Object.keys(microphoneListeners).forEach(
+    (id) => delete microphoneListeners[id],
+  );
 
-  Object.keys(remoteNames).forEach((remoteUserId) => {
-    delete remoteNames[remoteUserId];
-  });
-
-  Object.keys(roomPeople).forEach((remoteUserId) => {
-    delete roomPeople[remoteUserId];
-  });
-
-  Object.keys(cameraWatchers).forEach((remoteUserId) => {
-    delete cameraWatchers[remoteUserId];
+  document.querySelectorAll("audio[data-remote-audio]").forEach((audio) => {
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
   });
 
   messages.innerHTML = "";
 
   updatePeopleList();
-
   updateWatchingList();
 
   socket.emit("logout-user");
-
   sessionStorage.removeItem("sessionToken");
 
   loggedIn = false;
-
   username = "";
-
   userId = null;
 
   showLoggedOutButtons();
-
   setAuthenticatedUI(false);
 
   closeLogin();
-
   closeAccount();
-
-  loginPasswordInput.value = "";
 
   console.log("Logged out.");
 }
 
 // =========================================
-// LOGOUT RESULT
-// =========================================
-
-socket.on("logout-result", (result) => {
-  console.log("Logout result:", result);
-});
-
-// =========================================
-// ROOM INFO
+// UPDATE ROOM INFO
 // =========================================
 
 function updateRoomInfo() {
@@ -605,29 +619,6 @@ function updateRoomInfo() {
   roomInfo.textContent = `Room: ${roomId}`;
 }
 
-updateRoomInfo();
-
-// =========================================
-// ROOM COUNTS
-// =========================================
-
-socket.on("room-counts", (counts) => {
-  console.log("Room counts received:", counts);
-
-  roomRows.forEach((roomRow) => {
-    const roomName = roomRow.dataset.room;
-    const countElement = roomRow.querySelector(".room-users");
-
-    if (!countElement) {
-      return;
-    }
-
-    const count = counts[roomName] || 0;
-
-    countElement.textContent = `${count} user${count === 1 ? "" : "s"}`;
-  });
-});
-
 // =========================================
 // COPY ROOM LINK
 // =========================================
@@ -637,10 +628,11 @@ if (copyLinkButton) {
     try {
       await navigator.clipboard.writeText(window.location.href);
 
-      copyLinkButton.textContent = "✓ Link Copied";
+      const originalText = copyLinkButton.textContent;
+      copyLinkButton.textContent = "Copied!";
 
       setTimeout(() => {
-        copyLinkButton.textContent = "Copy Room Link";
+        copyLinkButton.textContent = originalText;
       }, 1500);
     } catch (error) {
       console.error("Could not copy room link:", error);
@@ -653,62 +645,40 @@ if (copyLinkButton) {
 // =========================================
 
 function joinRoom() {
-  if (!loggedIn) {
-    return;
-  }
-
-  if (inRoom) {
-    return;
-  }
-
-  if (!username) {
+  if (!loggedIn || inRoom || !username) {
     return;
   }
 
   console.log("Joining room:", roomId, "as", username);
 
-  // Add ourselves to the People in Room list immediately.
-  // Keep our current media state when changing rooms.
   roomPeople[socket.id] = {
     id: socket.id,
-    username: username,
+    username,
     camera: cameraOn,
     microphone: microphoneOn,
   };
 
   updatePeopleList();
 
-  // Join the room.
   socket.emit("join-room", {
-    roomId: roomId,
-    username: username,
+    roomId,
+    username,
   });
 
-  // Tell the new room that our existing camera/microphone state
-  // is still active. This does NOT start or stop any local media.
   socket.emit("media-state", {
     camera: cameraOn,
     microphone: microphoneOn,
   });
 
-  // Load the saved chat history for this room.
   socket.emit("get-chat-history", {
-    roomId: roomId,
+    roomId,
   });
 
   inRoom = true;
 
-  if (muteButton) {
-    muteButton.disabled = false;
-  }
-
-  if (cameraButton) {
-    cameraButton.disabled = false;
-  }
-
-  if (screenButton) {
-    screenButton.disabled = false;
-  }
+  if (muteButton) muteButton.disabled = false;
+  if (cameraButton) cameraButton.disabled = false;
+  if (screenButton) screenButton.disabled = false;
 
   console.log("Joined room:", roomId);
 }
@@ -744,13 +714,9 @@ socket.on("joined-room", (data) => {
 
     data.chatHistory.forEach(
       ({ username: senderUsername, message, created_at }) => {
-        const messageElement = createChatMessage(
-          senderUsername,
-          message,
-          created_at,
-        );
+        const element = createChatMessage(senderUsername, message, created_at);
 
-        messages.appendChild(messageElement);
+        messages.appendChild(element);
       },
     );
 
@@ -780,8 +746,6 @@ socket.on("room-users", (users) => {
     remoteNames[user.id] = user.username;
 
     updatePeopleList();
-
-    // Start the WebRTC connection with this person.
     startConnection(user.id, user.username);
   });
 });
@@ -813,12 +777,11 @@ socket.on("user-joined", (user) => {
 // USER LEFT
 // =========================================
 
-socket.on("user-left", ({ id: userId, username }) => {
-  console.log("User left:", userId, username);
+socket.on("user-left", ({ id: remoteUserId, username }) => {
+  console.log("User left:", remoteUserId, username);
 
-  removePeer(userId);
-
-  delete roomPeople[userId];
+  removePeer(remoteUserId);
+  delete roomPeople[remoteUserId];
 
   updatePeopleList();
 });
@@ -827,51 +790,64 @@ socket.on("user-left", ({ id: userId, username }) => {
 // MEDIA STATE
 // =========================================
 
-socket.on("media-state", ({ id: userId, username, camera, microphone }) => {
-  if (!userId) {
-    return;
-  }
+socket.on(
+  "media-state",
+  ({ id: remoteUserId, username, camera, microphone }) => {
+    if (!remoteUserId) {
+      return;
+    }
 
-  if (!roomPeople[userId]) {
-    roomPeople[userId] = {
-      id: userId,
-      username: username || remoteNames[userId] || "User",
-      camera: false,
-      microphone: false,
-    };
-  }
+    if (!roomPeople[remoteUserId]) {
+      roomPeople[remoteUserId] = {
+        id: remoteUserId,
+        username: username || remoteNames[remoteUserId] || "User",
+        camera: false,
+        microphone: false,
+      };
+    }
 
-  roomPeople[userId].camera = !!camera;
-  roomPeople[userId].microphone = !!microphone;
+    roomPeople[remoteUserId].camera = !!camera;
+    roomPeople[remoteUserId].microphone = !!microphone;
 
-  if (username) {
-    roomPeople[userId].username = username;
-    remoteNames[userId] = username;
-  }
+    if (!microphone) {
+      delete microphoneListeners[remoteUserId];
 
-  updatePeopleList();
-});
+      const audio = document.getElementById(`audio-${remoteUserId}`);
+
+      if (audio) {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+      }
+    }
+
+    if (username) {
+      roomPeople[remoteUserId].username = username;
+      remoteNames[remoteUserId] = username;
+    }
+
+    updatePeopleList();
+  },
+);
 
 // =========================================
 // REMOTE CAMERA OFF
 // =========================================
 
-socket.on("remote-camera-off", ({ id: userId, username }) => {
-  if (!userId) {
+socket.on("remote-camera-off", ({ id: remoteUserId, username }) => {
+  if (!remoteUserId) {
     return;
   }
 
-  console.log("Remote camera turned off:", username, userId);
+  console.log("Remote camera turned off:", username, remoteUserId);
 
-  // Update the People in Room list.
-  if (roomPeople[userId]) {
-    roomPeople[userId].camera = false;
+  if (roomPeople[remoteUserId]) {
+    roomPeople[remoteUserId].camera = false;
   }
 
-  // Completely remove the frozen video.
-  const container = document.getElementById(`video-container-${userId}`);
+  const container = document.getElementById(`video-container-${remoteUserId}`);
 
-  const video = document.getElementById(`video-${userId}`);
+  const video = document.getElementById(`video-${remoteUserId}`);
 
   if (video) {
     video.pause();
@@ -882,8 +858,7 @@ socket.on("remote-camera-off", ({ id: userId, username }) => {
     container.remove();
   }
 
-  // Remove the old stream reference.
-  delete remoteStreams[userId];
+  delete remoteStreams[remoteUserId];
 
   updatePeopleList();
 });
@@ -902,30 +877,21 @@ function updatePeopleList() {
   const users = Object.values(roomPeople);
 
   users.sort((a, b) => {
-    if (a.id === socket.id) {
-      return -1;
-    }
-
-    if (b.id === socket.id) {
-      return 1;
-    }
+    if (a.id === socket.id) return -1;
+    if (b.id === socket.id) return 1;
 
     return a.username.localeCompare(b.username);
   });
 
-  // Update the People in Room count.
   if (peopleTitle) {
-    const count = users.length;
-    peopleTitle.textContent = `People in Room (${count})`;
+    peopleTitle.textContent = `People in Room (${users.length})`;
   }
 
   users.forEach((user) => {
     const row = document.createElement("div");
-
     row.className = "person-row";
 
     const name = document.createElement("span");
-
     name.className = "person-name";
 
     name.textContent =
@@ -935,46 +901,63 @@ function updatePeopleList() {
 
     if (user.camera) {
       if (user.id !== socket.id) {
-        const cameraButton = document.createElement("button");
+        const button = document.createElement("button");
 
-        cameraButton.className = "camera-status-button";
+        button.className = "camera-status-button";
+        button.textContent = "📹";
+        button.title = `View ${user.username}'s camera`;
 
-        cameraButton.textContent = "📹";
-
-        cameraButton.title = `View ${user.username}'s camera`;
-
-        cameraButton.addEventListener("click", () => {
+        button.addEventListener("click", () => {
           showRemoteVideo(user.id);
         });
 
-        row.appendChild(cameraButton);
+        row.appendChild(button);
       } else {
-        const cameraStatus = document.createElement("span");
+        const status = document.createElement("span");
 
-        cameraStatus.className = "camera-status";
+        status.className = "camera-status";
+        status.textContent = "📹";
+        status.title = "Your camera is on";
 
-        cameraStatus.textContent = "📹";
-
-        cameraStatus.title = "Your camera is on";
-
-        row.appendChild(cameraStatus);
+        row.appendChild(status);
       }
     }
 
-    const micStatus = document.createElement("span");
+    if (user.id === socket.id) {
+      const micStatus = document.createElement("span");
 
-    micStatus.className = "mic-status";
+      micStatus.className = "mic-status";
+      micStatus.textContent = user.microphone ? "🎤" : "🔇";
+      micStatus.title = user.microphone
+        ? "Your microphone is on"
+        : "Your microphone is off";
 
-    micStatus.textContent = user.microphone ? "🎤" : "🔇";
+      row.appendChild(micStatus);
+    } else if (user.microphone) {
+      const speakerButton = document.createElement("button");
 
-    micStatus.title = user.microphone ? "Microphone on" : "Microphone off";
+      speakerButton.className = "speaker-status-button";
 
-    row.appendChild(micStatus);
+      const listening = !!microphoneListeners[user.id];
+
+      speakerButton.textContent = listening ? "🔊" : "🔇";
+
+      speakerButton.title = listening
+        ? `Stop listening to ${user.username}`
+        : `Listen to ${user.username}`;
+
+      speakerButton.setAttribute("aria-label", speakerButton.title);
+
+      speakerButton.addEventListener("click", async () => {
+        await toggleMicrophoneListener(user.id);
+      });
+
+      row.appendChild(speakerButton);
+    }
 
     peopleList.appendChild(row);
   });
 }
-
 // =========================================
 // WATCHING MY CAMERA
 // =========================================
@@ -996,11 +979,9 @@ function updateWatchingList() {
     const empty = document.createElement("div");
 
     empty.className = "watching-empty";
-
     empty.textContent = "Nobody is watching your camera.";
 
     watchingList.appendChild(empty);
-
     return;
   }
 
@@ -1010,7 +991,6 @@ function updateWatchingList() {
     const div = document.createElement("div");
 
     div.className = "watching-person";
-
     div.textContent = `👁️ ${watcher.username}`;
 
     watchingList.appendChild(div);
@@ -1045,26 +1025,26 @@ socket.on("camera-watch-status", ({ watcherId, watcherUsername, watching }) => {
 });
 
 // =========================================
-// START CONNECTION
+// START CONNECTION EVENT
 // =========================================
 
-socket.on("start-connection", ({ userId, username: remoteUsername }) => {
-  if (userId === socket.id) {
+socket.on("start-connection", ({ userId: remoteUserId, username }) => {
+  if (remoteUserId === socket.id) {
     return;
   }
 
-  remoteNames[userId] = remoteUsername;
+  remoteNames[remoteUserId] = username;
 
-  startConnection(userId, remoteUsername);
+  startConnection(remoteUserId, username);
 });
 
 // =========================================
 // PEER CONNECTION
 // =========================================
 
-function createPeerConnection(userId, userName, initiator) {
-  if (peerConnections[userId]) {
-    return peerConnections[userId];
+function createPeerConnection(remoteUserId, userName, initiator) {
+  if (peerConnections[remoteUserId]) {
+    return peerConnections[remoteUserId];
   }
 
   const pc = new RTCPeerConnection({
@@ -1075,25 +1055,21 @@ function createPeerConnection(userId, userName, initiator) {
     ],
   });
 
-  // Always create audio and video receive paths.
-  // This allows users to join with their camera and
-  // microphone OFF, but turn them on later.
   pc.addTransceiver("audio", {
-    direction: "recvonly",
+    direction: "inactive",
   });
 
   pc.addTransceiver("video", {
     direction: "recvonly",
   });
 
-  peerConnections[userId] = pc;
-
-  remoteNames[userId] = userName;
+  peerConnections[remoteUserId] = pc;
+  remoteNames[remoteUserId] = userName;
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       socket.emit("ice-candidate", {
-        target: userId,
+        target: remoteUserId,
         candidate: event.candidate,
       });
     }
@@ -1103,7 +1079,7 @@ function createPeerConnection(userId, userName, initiator) {
     console.log(`Connection with ${userName}:`, pc.connectionState);
 
     if (pc.connectionState === "failed" || pc.connectionState === "closed") {
-      removePeer(userId);
+      removePeer(remoteUserId);
     }
   };
 
@@ -1117,7 +1093,7 @@ function createPeerConnection(userId, userName, initiator) {
     let stream =
       event.streams && event.streams.length > 0
         ? event.streams[0]
-        : remoteStreams[userId];
+        : remoteStreams[remoteUserId];
 
     if (!stream) {
       stream = new MediaStream();
@@ -1127,20 +1103,76 @@ function createPeerConnection(userId, userName, initiator) {
       stream.addTrack(event.track);
     }
 
-    remoteStreams[userId] = stream;
+    remoteStreams[remoteUserId] = stream;
+
+    if (event.track.kind === "audio") {
+      let audio = document.getElementById(`audio-${remoteUserId}`);
+
+      if (!audio) {
+        audio = document.createElement("audio");
+
+        audio.id = `audio-${remoteUserId}`;
+        audio.dataset.remoteAudio = "true";
+        audio.autoplay = false;
+        audio.playsInline = true;
+
+        audio.muted = !microphoneListeners[remoteUserId];
+        audio.volume = microphoneListeners[remoteUserId] ? 1 : 0;
+        audio.style.display = "none";
+
+        document.body.appendChild(audio);
+      }
+
+      audio.srcObject = stream;
+
+      if (microphoneListeners[remoteUserId]) {
+        audio.muted = false;
+        audio.volume = 1;
+
+        audio.play().catch((error) => {
+          console.error("Remote audio playback error:", error);
+        });
+      } else {
+        audio.muted = true;
+        audio.volume = 0;
+        audio.pause();
+      }
+
+      event.track.addEventListener("unmute", () => {
+        if (microphoneListeners[remoteUserId]) {
+          audio.muted = false;
+          audio.volume = 1;
+
+          audio.play().catch((error) => {
+            console.error("Remote audio playback error:", error);
+          });
+        } else {
+          audio.muted = true;
+          audio.volume = 0;
+          audio.pause();
+        }
+      });
+
+      event.track.addEventListener("ended", () => {
+        audio.pause();
+        audio.srcObject = null;
+        audio.remove();
+      });
+
+      return;
+    }
 
     if (event.track.kind === "video") {
-      // The remote camera has started sending video.
       event.track.addEventListener("unmute", () => {
         console.log("Remote camera unmuted:", userName);
 
-        if (roomPeople[userId]) {
-          roomPeople[userId].camera = true;
+        if (roomPeople[remoteUserId]) {
+          roomPeople[remoteUserId].camera = true;
         }
 
         updatePeopleList();
 
-        const video = document.getElementById(`video-${userId}`);
+        const video = document.getElementById(`video-${remoteUserId}`);
 
         if (video) {
           video.play().catch((error) => {
@@ -1149,41 +1181,37 @@ function createPeerConnection(userId, userName, initiator) {
         }
       });
 
-      // THIS is the important part.
-      // When the other person's camera is turned off,
-      // the WebRTC receiver can become muted while
-      // still holding the last video frame.
       event.track.addEventListener("mute", () => {
         console.log("Remote camera muted:", userName);
 
-        if (roomPeople[userId]) {
-          roomPeople[userId].camera = false;
+        if (roomPeople[remoteUserId]) {
+          roomPeople[remoteUserId].camera = false;
         }
 
-        hideRemoteVideo(userId);
+        hideRemoteVideo(remoteUserId);
         updatePeopleList();
       });
 
       event.track.addEventListener("ended", () => {
         console.log("Remote camera track ended:", userName);
 
-        if (roomPeople[userId]) {
-          roomPeople[userId].camera = false;
+        if (roomPeople[remoteUserId]) {
+          roomPeople[remoteUserId].camera = false;
         }
 
-        hideRemoteVideo(userId);
+        hideRemoteVideo(remoteUserId);
         updatePeopleList();
       });
     }
 
-    ensureRemoteVideo(userId, userName, stream);
+    ensureRemoteVideo(remoteUserId, userName, stream);
 
-    // If the user clicked the camera button before
-    // the remote stream arrived, show it now.
-    if (cameraWatchRequests[userId]) {
-      const container = document.getElementById(`video-container-${userId}`);
+    if (cameraWatchRequests[remoteUserId]) {
+      const container = document.getElementById(
+        `video-container-${remoteUserId}`,
+      );
 
-      const video = document.getElementById(`video-${userId}`);
+      const video = document.getElementById(`video-${remoteUserId}`);
 
       if (container && video) {
         video.srcObject = stream;
@@ -1194,10 +1222,13 @@ function createPeerConnection(userId, userName, initiator) {
           console.error("Could not play remote video:", error);
         });
 
-        console.log("I AM NOW WATCHING:", remoteNames[userId] || userId);
+        console.log(
+          "I AM NOW WATCHING:",
+          remoteNames[remoteUserId] || remoteUserId,
+        );
 
         socket.emit("camera-watching", {
-          target: userId,
+          target: remoteUserId,
           watching: true,
         });
       }
@@ -1211,23 +1242,22 @@ function createPeerConnection(userId, userName, initiator) {
 // START CONNECTION
 // =========================================
 
-async function startConnection(userId, userName) {
-  if (peerConnections[userId]) {
+async function startConnection(remoteUserId, userName) {
+  if (peerConnections[remoteUserId]) {
     return;
   }
 
-  const pc = createPeerConnection(userId, userName, true);
+  const pc = createPeerConnection(remoteUserId, userName, true);
 
   try {
-    attachLocalTracks(pc);
+    await attachLocalTracks(pc, remoteUserId);
 
     const offer = await pc.createOffer();
 
     await pc.setLocalDescription(offer);
 
     socket.emit("offer", {
-      target: userId,
-
+      target: remoteUserId,
       offer: pc.localDescription,
     });
   } catch (error) {
@@ -1249,7 +1279,7 @@ socket.on("offer", async ({ sender, offer }) => {
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-    attachLocalTracks(pc);
+    await attachLocalTracks(pc, sender);
 
     const answer = await pc.createAnswer();
 
@@ -1257,7 +1287,6 @@ socket.on("offer", async ({ sender, offer }) => {
 
     socket.emit("answer", {
       target: sender,
-
       answer: pc.localDescription,
     });
   } catch (error) {
@@ -1318,7 +1347,7 @@ socket.on("ice-candidate", async ({ sender, candidate }) => {
 // ATTACH LOCAL TRACKS
 // =========================================
 
-function attachLocalTracks(pc) {
+async function attachLocalTracks(pc, remoteUserId) {
   const transceivers = pc.getTransceivers();
 
   const audioTransceiver = transceivers.find(
@@ -1329,14 +1358,21 @@ function attachLocalTracks(pc) {
   );
 
   if (audioTransceiver) {
-    if (microphoneTrack) {
-      audioTransceiver.sender.replaceTrack(microphoneTrack);
+    const sendAudio = microphoneOn && Boolean(microphoneTrack);
+    const receiveAudio = Boolean(microphoneListeners[remoteUserId]);
 
+    await audioTransceiver.sender.replaceTrack(
+      sendAudio ? microphoneTrack : null,
+    );
+
+    if (sendAudio && receiveAudio) {
       audioTransceiver.direction = "sendrecv";
-    } else {
-      audioTransceiver.sender.replaceTrack(null);
-
+    } else if (sendAudio) {
+      audioTransceiver.direction = "sendonly";
+    } else if (receiveAudio) {
       audioTransceiver.direction = "recvonly";
+    } else {
+      audioTransceiver.direction = "inactive";
     }
   }
 
@@ -1357,12 +1393,10 @@ function attachLocalTracks(pc) {
     }
 
     if (videoTrack) {
-      videoTransceiver.sender.replaceTrack(videoTrack);
-
+      await videoTransceiver.sender.replaceTrack(videoTrack);
       videoTransceiver.direction = "sendrecv";
     } else {
-      videoTransceiver.sender.replaceTrack(null);
-
+      await videoTransceiver.sender.replaceTrack(null);
       videoTransceiver.direction = "recvonly";
     }
   }
@@ -1379,17 +1413,15 @@ async function startCamera() {
     });
 
     cameraTrack = stream.getVideoTracks()[0];
-
     cameraTrack.enabled = true;
 
     localStream.addTrack(cameraTrack);
-
     cameraOn = true;
 
     showLocalVideo();
 
-    for (const userId in peerConnections) {
-      const pc = peerConnections[userId];
+    for (const remoteUserId in peerConnections) {
+      const pc = peerConnections[remoteUserId];
 
       const videoTransceiver = pc
         .getTransceivers()
@@ -1402,16 +1434,14 @@ async function startCamera() {
 
       if (videoTransceiver) {
         await videoTransceiver.sender.replaceTrack(cameraTrack);
-
         videoTransceiver.direction = "sendrecv";
       }
 
-      await renegotiate(userId, pc);
+      await renegotiate(remoteUserId, pc);
     }
 
     socket.emit("media-state", {
       camera: true,
-
       microphone: microphoneOn,
     });
 
@@ -1420,11 +1450,9 @@ async function startCamera() {
     }
 
     updatePeopleList();
-
     cameraButton.textContent = "📹 Camera Off";
   } catch (error) {
     console.error("Camera error:", error);
-
     alert("Could not access the camera.");
   }
 }
@@ -1434,9 +1462,7 @@ async function stopCamera() {
 
   if (cameraTrack) {
     cameraTrack.stop();
-
     localStream.removeTrack(cameraTrack);
-
     cameraTrack = null;
   }
 
@@ -1448,8 +1474,8 @@ async function stopCamera() {
 
   updateWatchingList();
 
-  for (const userId in peerConnections) {
-    const pc = peerConnections[userId];
+  for (const remoteUserId in peerConnections) {
+    const pc = peerConnections[remoteUserId];
 
     const videoTransceiver = pc
       .getTransceivers()
@@ -1462,16 +1488,14 @@ async function stopCamera() {
 
     if (videoTransceiver) {
       await videoTransceiver.sender.replaceTrack(null);
-
       videoTransceiver.direction = "recvonly";
     }
 
-    await renegotiate(userId, pc);
+    await renegotiate(remoteUserId, pc);
   }
 
   socket.emit("media-state", {
     camera: false,
-
     microphone: microphoneOn,
   });
 
@@ -1480,7 +1504,6 @@ async function stopCamera() {
   }
 
   updatePeopleList();
-
   cameraButton.textContent = "📹 Camera On";
 }
 
@@ -1495,6 +1518,97 @@ if (cameraButton) {
 }
 
 // =========================================
+// REMOTE MICROPHONE LISTENING
+// =========================================
+
+async function updateAudioDirection(remoteUserId) {
+  const pc = peerConnections[remoteUserId];
+
+  if (!pc) {
+    return;
+  }
+
+  const audioTransceiver = pc
+    .getTransceivers()
+    .find(
+      (transceiver) =>
+        transceiver.receiver &&
+        transceiver.receiver.track &&
+        transceiver.receiver.track.kind === "audio",
+    );
+
+  if (!audioTransceiver) {
+    return;
+  }
+
+  const sendAudio = microphoneOn && Boolean(microphoneTrack);
+  const receiveAudio = Boolean(microphoneListeners[remoteUserId]);
+
+  await audioTransceiver.sender.replaceTrack(
+    sendAudio ? microphoneTrack : null,
+  );
+
+  if (sendAudio && receiveAudio) {
+    audioTransceiver.direction = "sendrecv";
+  } else if (sendAudio) {
+    audioTransceiver.direction = "sendonly";
+  } else if (receiveAudio) {
+    audioTransceiver.direction = "recvonly";
+  } else {
+    audioTransceiver.direction = "inactive";
+  }
+}
+
+async function toggleMicrophoneListener(remoteUserId) {
+  const person = roomPeople[remoteUserId];
+
+  if (!person || !person.microphone) {
+    return;
+  }
+
+  microphoneListeners[remoteUserId] = !microphoneListeners[remoteUserId];
+
+  // Update the speaker icon immediately.
+  updatePeopleList();
+
+  const audio = document.getElementById(`audio-${remoteUserId}`);
+
+  if (!microphoneListeners[remoteUserId] && audio) {
+    // Stop playback immediately when the speaker is switched off.
+    audio.muted = true;
+    audio.volume = 0;
+    audio.pause();
+  }
+
+  if (!peerConnections[remoteUserId]) {
+    startConnection(remoteUserId, person.username);
+    return;
+  }
+
+  const pc = peerConnections[remoteUserId];
+
+  await updateAudioDirection(remoteUserId);
+  await renegotiate(remoteUserId, pc);
+
+  const currentAudio = document.getElementById(`audio-${remoteUserId}`);
+
+  if (currentAudio) {
+    if (microphoneListeners[remoteUserId]) {
+      currentAudio.muted = false;
+      currentAudio.volume = 1;
+
+      currentAudio.play().catch((error) => {
+        console.error("Remote audio playback error:", error);
+      });
+    } else {
+      currentAudio.muted = true;
+      currentAudio.volume = 0;
+      currentAudio.pause();
+    }
+  }
+}
+
+// =========================================
 // MICROPHONE
 // =========================================
 
@@ -1505,37 +1619,20 @@ async function startMicrophone() {
     });
 
     microphoneTrack = stream.getAudioTracks()[0];
-
     microphoneTrack.enabled = true;
 
     localStream.addTrack(microphoneTrack);
-
     microphoneOn = true;
 
-    for (const userId in peerConnections) {
-      const pc = peerConnections[userId];
+    for (const remoteUserId in peerConnections) {
+      const pc = peerConnections[remoteUserId];
 
-      const audioTransceiver = pc
-        .getTransceivers()
-        .find(
-          (transceiver) =>
-            transceiver.receiver &&
-            transceiver.receiver.track &&
-            transceiver.receiver.track.kind === "audio",
-        );
-
-      if (audioTransceiver) {
-        await audioTransceiver.sender.replaceTrack(microphoneTrack);
-
-        audioTransceiver.direction = "sendrecv";
-      }
-
-      await renegotiate(userId, pc);
+      await updateAudioDirection(remoteUserId);
+      await renegotiate(remoteUserId, pc);
     }
 
     socket.emit("media-state", {
       camera: cameraOn,
-
       microphone: true,
     });
 
@@ -1544,11 +1641,9 @@ async function startMicrophone() {
     }
 
     updatePeopleList();
-
     muteButton.textContent = "🎤 Mic Off";
   } catch (error) {
     console.error("Microphone error:", error);
-
     alert("Could not access the microphone.");
   }
 }
@@ -1558,36 +1653,19 @@ async function stopMicrophone() {
 
   if (microphoneTrack) {
     microphoneTrack.stop();
-
     localStream.removeTrack(microphoneTrack);
-
     microphoneTrack = null;
   }
 
-  for (const userId in peerConnections) {
-    const pc = peerConnections[userId];
+  for (const remoteUserId in peerConnections) {
+    const pc = peerConnections[remoteUserId];
 
-    const audioTransceiver = pc
-      .getTransceivers()
-      .find(
-        (transceiver) =>
-          transceiver.receiver &&
-          transceiver.receiver.track &&
-          transceiver.receiver.track.kind === "audio",
-      );
-
-    if (audioTransceiver) {
-      await audioTransceiver.sender.replaceTrack(null);
-
-      audioTransceiver.direction = "recvonly";
-    }
-
-    await renegotiate(userId, pc);
+    await updateAudioDirection(remoteUserId);
+    await renegotiate(remoteUserId, pc);
   }
 
   socket.emit("media-state", {
     camera: cameraOn,
-
     microphone: false,
   });
 
@@ -1596,7 +1674,6 @@ async function stopMicrophone() {
   }
 
   updatePeopleList();
-
   muteButton.textContent = "🎤 Mic On";
 }
 
@@ -1614,7 +1691,7 @@ if (muteButton) {
 // RENEGOTIATE
 // =========================================
 
-async function renegotiate(userId, pc) {
+async function renegotiate(remoteUserId, pc) {
   try {
     if (pc.signalingState !== "stable") {
       return;
@@ -1625,8 +1702,7 @@ async function renegotiate(userId, pc) {
     await pc.setLocalDescription(offer);
 
     socket.emit("offer", {
-      target: userId,
-
+      target: remoteUserId,
       offer: pc.localDescription,
     });
   } catch (error) {
@@ -1639,50 +1715,44 @@ async function renegotiate(userId, pc) {
 // =========================================
 
 function showLocalVideo() {
+  if (!videos) {
+    return;
+  }
+
   let container = document.getElementById("local-video-container");
 
   if (!container) {
     container = document.createElement("div");
-
     container.id = "local-video-container";
-
     container.className = "video-container";
-
-    videos.prepend(container);
 
     const video = document.createElement("video");
 
     video.id = "local-video";
-
     video.autoplay = true;
-
-    video.muted = true;
-
     video.playsInline = true;
-
-    container.appendChild(video);
+    video.muted = true;
 
     const label = document.createElement("div");
 
-    label.className = "username";
-
+    label.className = "video-label";
     label.textContent = `${username} (You)`;
 
+    container.appendChild(video);
     container.appendChild(label);
+    videos.appendChild(container);
   }
 
   const video = document.getElementById("local-video");
 
-  video.srcObject = localStream;
+  if (video) {
+    video.srcObject = localStream;
 
-  video.play().catch((error) => {
-    console.log("Local video playback:", error);
-  });
+    video.play().catch((error) => {
+      console.error("Local video playback error:", error);
+    });
+  }
 }
-
-// =========================================
-// HIDE LOCAL VIDEO
-// =========================================
 
 function hideLocalVideo() {
   const container = document.getElementById("local-video-container");
@@ -1696,36 +1766,28 @@ function hideLocalVideo() {
 // REMOTE VIDEO
 // =========================================
 
-function ensureRemoteVideo(userId, userName, stream) {
-  let container = document.getElementById(`video-container-${userId}`);
+function ensureRemoteVideo(remoteUserId, userName, stream) {
+  let container = document.getElementById(`video-container-${remoteUserId}`);
 
   if (!container) {
     container = document.createElement("div");
 
-    container.id = `video-container-${userId}`;
-
+    container.id = `video-container-${remoteUserId}`;
     container.className = "video-container";
-
     container.style.display = "none";
 
     const video = document.createElement("video");
 
-    video.id = `video-${userId}`;
-
+    video.id = `video-${remoteUserId}`;
     video.autoplay = true;
-
     video.playsInline = true;
-
     video.muted = true;
 
     video.setAttribute("autoplay", "");
-
     video.setAttribute("playsinline", "");
 
     video.style.width = "100%";
-
     video.style.height = "100%";
-
     video.style.objectFit = "cover";
 
     container.appendChild(video);
@@ -1733,25 +1795,34 @@ function ensureRemoteVideo(userId, userName, stream) {
     const closeButton = document.createElement("button");
 
     closeButton.className = "close-video-button";
-
     closeButton.textContent = "✕";
-
     closeButton.title = "Hide this video";
 
     closeButton.addEventListener("click", () => {
-      hideRemoteVideo(userId);
+      hideRemoteVideo(remoteUserId);
     });
 
     container.appendChild(closeButton);
 
     const label = document.createElement("div");
 
-    label.className = "username";
+    label.className = "video-label remote-video-name";
+    label.textContent = userName || remoteNames[remoteUserId] || "User";
 
-    label.textContent = userName;
+    label.style.position = "absolute";
+    label.style.left = "8px";
+    label.style.bottom = "8px";
+    label.style.zIndex = "5";
+    label.style.padding = "4px 8px";
+    label.style.borderRadius = "6px";
+    label.style.background = "rgba(0, 0, 0, 0.65)";
+    label.style.color = "white";
+    label.style.fontSize = "14px";
+    label.style.fontWeight = "600";
+    label.style.lineHeight = "1.2";
+    label.style.pointerEvents = "none";
 
     container.appendChild(label);
-
     videos.appendChild(container);
 
     video.addEventListener("loadedmetadata", () => {
@@ -1761,7 +1832,13 @@ function ensureRemoteVideo(userId, userName, stream) {
     });
   }
 
-  const video = document.getElementById(`video-${userId}`);
+  const label = container.querySelector(".remote-video-name");
+
+  if (label) {
+    label.textContent = userName || remoteNames[remoteUserId] || "User";
+  }
+
+  const video = document.getElementById(`video-${remoteUserId}`);
 
   if (video.srcObject !== stream) {
     video.srcObject = stream;
@@ -1772,83 +1849,66 @@ function ensureRemoteVideo(userId, userName, stream) {
   });
 }
 
-function showRemoteVideo(userId) {
-  console.log("Camera button clicked for:", userId);
+function showRemoteVideo(remoteUserId) {
+  console.log("Camera button clicked for:", remoteUserId);
 
-  // Remember that this user wants to watch this camera.
-  cameraWatchRequests[userId] = true;
+  cameraWatchRequests[remoteUserId] = true;
 
-  const stream = remoteStreams[userId];
+  const stream = remoteStreams[remoteUserId];
 
-  // If the WebRTC connection doesn't exist yet,
-  // start it now.
-  if (!peerConnections[userId]) {
-    const userName = remoteNames[userId] || "User";
+  if (!peerConnections[remoteUserId]) {
+    const person = roomPeople[remoteUserId];
 
-    console.log("Starting remote camera connection for:", userName);
-
-    startConnection(userId, userName);
+    if (person) {
+      startConnection(remoteUserId, person.username);
+    }
 
     return;
   }
 
-  // The connection exists, but the media stream hasn't arrived yet.
-  // ontrack will finish showing it when it arrives.
   if (!stream) {
-    console.log("Waiting for remote camera stream:", userId);
-
+    console.log("Waiting for remote video stream:", remoteUserId);
     return;
   }
 
-  let container = document.getElementById(`video-container-${userId}`);
+  const person = roomPeople[remoteUserId];
 
-  let video = document.getElementById(`video-${userId}`);
+  const userName =
+    remoteNames[remoteUserId] || (person ? person.username : "User");
 
-  // Create the video tile if it doesn't exist yet.
-  if (!container || !video) {
-    ensureRemoteVideo(userId, remoteNames[userId] || "User", stream);
+  ensureRemoteVideo(remoteUserId, userName, stream);
 
-    container = document.getElementById(`video-container-${userId}`);
+  const container = document.getElementById(`video-container-${remoteUserId}`);
 
-    video = document.getElementById(`video-${userId}`);
+  const video = document.getElementById(`video-${remoteUserId}`);
+
+  if (container && video) {
+    video.srcObject = stream;
+    video.muted = false;
+    container.style.display = "block";
+
+    video.play().catch((error) => {
+      console.error("Could not play remote video:", error);
+    });
+
+    socket.emit("camera-watching", {
+      target: remoteUserId,
+      watching: true,
+    });
   }
-
-  if (!container || !video) {
-    console.warn("Could not create remote video:", userId);
-    return;
-  }
-
-  video.srcObject = stream;
-
-  video.muted = false;
-
-  container.style.display = "block";
-
-  video.play().catch((error) => {
-    console.error("Could not play remote video:", error);
-  });
-
-  console.log("I AM NOW WATCHING:", remoteNames[userId] || userId);
-
-  socket.emit("camera-watching", {
-    target: userId,
-    watching: true,
-  });
 }
 
-function hideRemoteVideo(userId) {
-  delete cameraWatchRequests[userId];
-
-  const container = document.getElementById(`video-container-${userId}`);
+function hideRemoteVideo(remoteUserId) {
+  const container = document.getElementById(`video-container-${remoteUserId}`);
 
   if (container) {
-    container.style.display = "none";
+    container.remove();
   }
 
-  console.log("I STOPPED WATCHING:", remoteNames[userId] || userId);
+  delete cameraWatchRequests[remoteUserId];
 
   socket.emit("camera-watching", {
-    target: userId,
+    target: remoteUserId,
     watching: false,
   });
 }
@@ -1874,15 +1934,14 @@ async function startScreenSharing() {
     });
 
     screenTrack = stream.getVideoTracks()[0];
-
     screenSharing = true;
 
     if (cameraTrack) {
       cameraTrack.enabled = false;
     }
 
-    for (const userId in peerConnections) {
-      const pc = peerConnections[userId];
+    for (const remoteUserId in peerConnections) {
+      const pc = peerConnections[remoteUserId];
 
       const videoTransceiver = pc
         .getTransceivers()
@@ -1895,18 +1954,16 @@ async function startScreenSharing() {
 
       if (videoTransceiver) {
         await videoTransceiver.sender.replaceTrack(screenTrack);
-
         videoTransceiver.direction = "sendrecv";
       }
 
-      await renegotiate(userId, pc);
+      await renegotiate(remoteUserId, pc);
     }
 
     screenTrack.onended = stopScreenSharing;
 
     socket.emit("media-state", {
       camera: true,
-
       microphone: microphoneOn,
     });
 
@@ -1925,12 +1982,11 @@ async function stopScreenSharing() {
 
   if (screenTrack) {
     screenTrack.stop();
-
     screenTrack = null;
   }
 
-  for (const userId in peerConnections) {
-    const pc = peerConnections[userId];
+  for (const remoteUserId in peerConnections) {
+    const pc = peerConnections[remoteUserId];
 
     const videoTransceiver = pc
       .getTransceivers()
@@ -1946,12 +2002,11 @@ async function stopScreenSharing() {
         await videoTransceiver.sender.replaceTrack(cameraTrack);
       } else {
         await videoTransceiver.sender.replaceTrack(null);
-
         videoTransceiver.direction = "recvonly";
       }
     }
 
-    await renegotiate(userId, pc);
+    await renegotiate(remoteUserId, pc);
   }
 
   if (cameraTrack) {
@@ -1960,7 +2015,6 @@ async function stopScreenSharing() {
 
   socket.emit("media-state", {
     camera: cameraOn,
-
     microphone: microphoneOn,
   });
 
@@ -1979,7 +2033,6 @@ if (messageInput) {
   messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-
       sendMessage();
     }
   });
@@ -1993,13 +2046,11 @@ function sendMessage() {
   }
 
   socket.emit("chat-message", {
-    roomId: roomId,
-
-    message: message,
+    roomId,
+    message,
   });
 
   messageInput.value = "";
-
   messageInput.focus();
 }
 
@@ -2017,17 +2068,14 @@ function createChatMessage(senderUsername, message, createdAt = null) {
     : "chat-message other";
 
   const messageHeader = document.createElement("div");
-
   messageHeader.className = "message-header";
 
   const nameElement = document.createElement("span");
-
   nameElement.className = "message-username";
 
   nameElement.textContent = isMine ? `${senderUsername} (You)` : senderUsername;
 
   const timeElement = document.createElement("span");
-
   timeElement.className = "message-time";
 
   let messageDate;
@@ -2040,22 +2088,17 @@ function createChatMessage(senderUsername, message, createdAt = null) {
 
   timeElement.textContent = messageDate.toLocaleTimeString([], {
     hour: "numeric",
-
     minute: "2-digit",
   });
 
   const textElement = document.createElement("div");
-
   textElement.className = "message-text";
-
   textElement.textContent = message;
 
   messageHeader.appendChild(nameElement);
-
   messageHeader.appendChild(timeElement);
 
   messageElement.appendChild(messageHeader);
-
   messageElement.appendChild(textElement);
 
   return messageElement;
@@ -2069,7 +2112,6 @@ socket.on("chat-message", ({ username: senderUsername, message }) => {
   const messageElement = createChatMessage(senderUsername, message);
 
   messages.appendChild(messageElement);
-
   messages.scrollTop = messages.scrollHeight;
 });
 
@@ -2106,7 +2148,6 @@ roomRows.forEach((roomRow) => {
     }
 
     const destinationUrl = new URL(destination, window.location.origin);
-
     const pathParts = destinationUrl.pathname.split("/");
 
     const newRoomId =
@@ -2123,12 +2164,8 @@ roomRows.forEach((roomRow) => {
 
     console.log("Switching rooms:", roomId, "->", newRoomId);
 
-    // IMPORTANT:
-    // Do not call stopAllMedia() here.
-    // The local camera, microphone, and screen share stay running.
     inRoom = false;
 
-    // Close only the old room's remote WebRTC connections.
     Object.keys(peerConnections).forEach((remoteUserId) => {
       const pc = peerConnections[remoteUserId];
 
@@ -2139,40 +2176,31 @@ roomRows.forEach((roomRow) => {
       delete peerConnections[remoteUserId];
     });
 
-    // Remove old remote streams and names.
-    Object.keys(remoteStreams).forEach((remoteUserId) => {
-      delete remoteStreams[remoteUserId];
+    Object.keys(remoteStreams).forEach((id) => delete remoteStreams[id]);
+    Object.keys(remoteNames).forEach((id) => delete remoteNames[id]);
+    Object.keys(roomPeople).forEach((id) => delete roomPeople[id]);
+    Object.keys(cameraWatchers).forEach((id) => delete cameraWatchers[id]);
+    Object.keys(microphoneListeners).forEach(
+      (id) => delete microphoneListeners[id],
+    );
+
+    document.querySelectorAll("audio[data-remote-audio]").forEach((audio) => {
+      audio.pause();
+      audio.srcObject = null;
+      audio.remove();
     });
 
-    Object.keys(remoteNames).forEach((remoteUserId) => {
-      delete remoteNames[remoteUserId];
-    });
-
-    // Clear old room people and camera watchers.
-    Object.keys(roomPeople).forEach((remoteUserId) => {
-      delete roomPeople[remoteUserId];
-    });
-
-    Object.keys(cameraWatchers).forEach((watcherId) => {
-      delete cameraWatchers[watcherId];
-    });
-
-    // Remove old remote video tiles.
-    // Keep our local camera tile.
     videos.querySelectorAll(".video-container").forEach((container) => {
       if (container.id !== "local-video-container") {
         container.remove();
       }
     });
 
-    // Clear the old room's chat immediately.
     messages.innerHTML = "";
 
     updatePeopleList();
     updateWatchingList();
 
-    // Change the room without reloading the webpage.
-    // This is what keeps the local camera alive.
     roomId = newRoomId;
 
     window.history.pushState({}, "", destinationUrl.pathname);
@@ -2180,8 +2208,6 @@ roomRows.forEach((roomRow) => {
     updateRoomInfo();
     highlightCurrentRoom();
 
-    // Join the new room using the same socket
-    // and the same local media.
     joinRoom();
   });
 });
@@ -2190,24 +2216,30 @@ roomRows.forEach((roomRow) => {
 // REMOVE PEER
 // =========================================
 
-function removePeer(userId) {
-  const pc = peerConnections[userId];
+function removePeer(remoteUserId) {
+  const pc = peerConnections[remoteUserId];
 
   if (pc) {
     pc.close();
-
-    delete peerConnections[userId];
+    delete peerConnections[remoteUserId];
   }
 
-  delete remoteStreams[userId];
+  delete remoteStreams[remoteUserId];
+  delete remoteNames[remoteUserId];
+  delete cameraWatchers[remoteUserId];
+  delete microphoneListeners[remoteUserId];
 
-  delete remoteNames[userId];
+  const audio = document.getElementById(`audio-${remoteUserId}`);
 
-  delete cameraWatchers[userId];
+  if (audio) {
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+  }
 
   updateWatchingList();
 
-  const container = document.getElementById(`video-container-${userId}`);
+  const container = document.getElementById(`video-container-${remoteUserId}`);
 
   if (container) {
     container.remove();
@@ -2220,26 +2252,21 @@ function removePeer(userId) {
 
 function stopAllMedia() {
   cameraOn = false;
-
   microphoneOn = false;
-
   screenSharing = false;
 
   if (cameraTrack) {
     cameraTrack.stop();
-
     cameraTrack = null;
   }
 
   if (microphoneTrack) {
     microphoneTrack.stop();
-
     microphoneTrack = null;
   }
 
   if (screenTrack) {
     screenTrack.stop();
-
     screenTrack = null;
   }
 

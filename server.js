@@ -147,6 +147,14 @@ io.on("connection", (socket) => {
   socket.emit("room-counts", getRoomCounts());
 
   // =========================================
+  // ROOM COUNTS REQUEST
+  // =========================================
+
+  socket.on("get-room-counts", () => {
+    socket.emit("room-counts", getRoomCounts());
+  });
+
+  // =========================================
   // REGISTER
   // =========================================
 
@@ -404,11 +412,9 @@ io.on("connection", (socket) => {
     console.log(`${username} joined room ${roomId}`);
 
     // Tell the NEW user who is already in the room.
-    // The new user will initiate the WebRTC connections.
     socket.emit("room-users", existingUsers);
 
     // Tell everyone else that this user joined.
-    // This updates their People in Room list.
     socket.to(roomId).emit("user-joined", {
       id: socket.id,
       username: username,
