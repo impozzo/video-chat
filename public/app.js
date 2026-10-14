@@ -79,6 +79,7 @@ const roomRows = document.querySelectorAll(".room-row");
 
 function updateRoomCounts(counts = {}) {
   roomRows.forEach((roomRow) => {
+    roomRow.href = "/";
     const roomName = roomRow.dataset.room;
     const countElement = roomRow.querySelector(".room-users");
 
@@ -142,12 +143,26 @@ const sendButton = document.getElementById("sendButton");
 // ROOM ID
 // =========================================
 
-const pathParts = window.location.pathname.split("/");
+// Approved rooms. The server validates these separately.
+const APPROVED_ROOM_IDS = new Set([
+  "general",
+  "gaming",
+  "music",
+  "movies",
+  "sports",
+  "technology",
+  "random",
+]);
 
-let roomId =
-  pathParts[1] === "room" && pathParts[2]
-    ? decodeURIComponent(pathParts[2])
-    : "general";
+// Remember the last selected room without putting it in the URL.
+const savedRoomId = sessionStorage.getItem("videoChatRoomId");
+
+let roomId = APPROVED_ROOM_IDS.has(savedRoomId) ? savedRoomId : "general";
+
+// Always keep the browser at the website's root address.
+if (window.location.pathname !== "/") {
+  window.history.replaceState({}, "", "/");
+}
 
 // =========================================
 // STATE
@@ -746,7 +761,6 @@ socket.on("room-users", (users) => {
     remoteNames[user.id] = user.username;
 
     updatePeopleList();
-    startConnection(user.id, user.username);
   });
 });
 
@@ -771,6 +785,11 @@ socket.on("user-joined", (user) => {
   remoteNames[user.id] = user.username;
 
   updatePeopleList();
+
+  // The person already in the room initiates the connection.
+  // This allows their existing camera track to be included
+  // in the initial WebRTC offer.
+  startConnection(user.id, user.username);
 });
 
 // =========================================
@@ -1215,7 +1234,9 @@ function createPeerConnection(remoteUserId, userName, initiator) {
 
       if (container && video) {
         video.srcObject = stream;
-        video.muted = false;
+        // Keep video-element audio muted; remote sound is controlled
+        // by the separate speaker button and audio element.
+        video.muted = true;
         container.style.display = "block";
 
         video.play().catch((error) => {
@@ -1849,53 +1870,72 @@ function ensureRemoteVideo(remoteUserId, userName, stream) {
   });
 }
 
+// =========================================
+// SHOW REMOTE CAMERA
+// =========================================
+
 function showRemoteVideo(remoteUserId) {
   console.log("Camera button clicked for:", remoteUserId);
 
+  // Remember the viewer's request even if the initial video track
+  // has not arrived yet. The ontrack handler will show it later.
   cameraWatchRequests[remoteUserId] = true;
-
-  const stream = remoteStreams[remoteUserId];
-
-  if (!peerConnections[remoteUserId]) {
-    const person = roomPeople[remoteUserId];
-
-    if (person) {
-      startConnection(remoteUserId, person.username);
-    }
-
-    return;
-  }
-
-  if (!stream) {
-    console.log("Waiting for remote video stream:", remoteUserId);
-    return;
-  }
 
   const person = roomPeople[remoteUserId];
 
-  const userName =
-    remoteNames[remoteUserId] || (person ? person.username : "User");
+  if (!person || remoteUserId === socket.id) {
+    console.warn("Cannot find the remote user:", remoteUserId);
+    return;
+  }
+
+  const userName = remoteNames[remoteUserId] || person.username || "User";
+  const pc = peerConnections[remoteUserId];
+
+  // The existing room member initiates the WebRTC connection when this
+  // user joins. Do not create a second offer from a camera click: that can
+  // collide with the offer already being sent by the other browser.
+  if (!pc) {
+    console.log("Waiting for the initial WebRTC connection with:", userName);
+    return;
+  }
+
+  const stream = remoteStreams[remoteUserId];
+  const hasLiveVideoTrack = Boolean(
+    stream &&
+    stream.getVideoTracks().some((track) => track.readyState === "live"),
+  );
+
+  if (!hasLiveVideoTrack) {
+    // Keep the viewing request queued. Do not renegotiate from the viewer
+    // just because the remote track has not arrived yet. The ontrack
+    // handler below will display the camera as soon as it arrives.
+    console.log("Waiting for the remote video track from:", userName);
+    return;
+  }
 
   ensureRemoteVideo(remoteUserId, userName, stream);
 
   const container = document.getElementById(`video-container-${remoteUserId}`);
-
   const video = document.getElementById(`video-${remoteUserId}`);
 
-  if (container && video) {
-    video.srcObject = stream;
-    video.muted = false;
-    container.style.display = "block";
-
-    video.play().catch((error) => {
-      console.error("Could not play remote video:", error);
-    });
-
-    socket.emit("camera-watching", {
-      target: remoteUserId,
-      watching: true,
-    });
+  if (!container || !video) {
+    console.error("Could not create the remote video tile.");
+    return;
   }
+
+  video.srcObject = stream;
+  // Remote audio playback remains controlled by the separate speaker button.
+  video.muted = true;
+  container.style.display = "block";
+
+  video.play().catch((error) => {
+    console.error("Could not play the remote camera:", error);
+  });
+
+  socket.emit("camera-watching", {
+    target: remoteUserId,
+    watching: true,
+  });
 }
 
 function hideRemoteVideo(remoteUserId) {
@@ -2141,26 +2181,25 @@ socket.on("chat-history", (chatHistory) => {
 
 roomRows.forEach((roomRow) => {
   roomRow.addEventListener("click", (event) => {
-    const destination = roomRow.href;
-
-    if (!destination || !loggedIn || !inRoom) {
-      return;
-    }
-
-    const destinationUrl = new URL(destination, window.location.origin);
-    const pathParts = destinationUrl.pathname.split("/");
-
-    const newRoomId =
-      pathParts[1] === "room" && pathParts[2]
-        ? decodeURIComponent(pathParts[2])
-        : "general";
-
-    if (newRoomId === roomId) {
-      event.preventDefault();
-      return;
-    }
-
+    // Prevent navigation to a room URL.
     event.preventDefault();
+
+    if (!loggedIn || !inRoom) {
+      return;
+    }
+
+    // Get the selected room from the room list.
+    const newRoomId = roomRow.dataset.room;
+
+    // Only allow rooms in the approved room list.
+    if (!APPROVED_ROOM_IDS.has(newRoomId)) {
+      return;
+    }
+
+    // Do nothing if already in this room.
+    if (newRoomId === roomId) {
+      return;
+    }
 
     console.log("Switching rooms:", roomId, "->", newRoomId);
 
@@ -2203,7 +2242,13 @@ roomRows.forEach((roomRow) => {
 
     roomId = newRoomId;
 
-    window.history.pushState({}, "", destinationUrl.pathname);
+    // Remember the selected room without putting it in the URL.
+    sessionStorage.setItem("videoChatRoomId", roomId);
+
+    // Keep the browser address at the main website address.
+    if (window.location.pathname !== "/") {
+      window.history.replaceState({}, "", "/");
+    }
 
     updateRoomInfo();
     highlightCurrentRoom();

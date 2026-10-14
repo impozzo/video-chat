@@ -12,7 +12,29 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
+// =========================================
+// APPROVED ROOMS
+// Only room IDs in this list can be joined.
+// Keep these IDs synchronized with the room list in the client.
+// =========================================
+
+const ALLOWED_ROOMS = new Set([
+  "general",
+  "gaming",
+  "music",
+  "movies",
+  "sports",
+  "technology",
+  "random",
+]);
+
 app.get("/room/:roomId", (req, res) => {
+  const requestedRoom = req.params.roomId;
+
+  if (!ALLOWED_ROOMS.has(requestedRoom)) {
+    return res.redirect("/room/general");
+  }
+
   res.sendFile(__dirname + "/public/index.html");
 });
 
@@ -336,14 +358,35 @@ io.on("connection", (socket) => {
   // JOIN ROOM
   // =========================================
 
-  socket.on("join-room", ({ roomId, username }) => {
-    if (!socket.authenticatedUserId) {
+  socket.on("join-room", ({ roomId }) => {
+    if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
       socket.emit("join-error", {
         message: "You must be logged in.",
       });
 
       return;
     }
+
+    // =========================================
+    // VALIDATE ROOM
+    // Reject unknown rooms BEFORE leaving the
+    // user's current room.
+    // =========================================
+
+    if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
+      socket.emit("join-error", {
+        message:
+          "That room does not exist. Please choose a room from the room list.",
+      });
+
+      return;
+    }
+
+    // Always use the username attached to the
+    // authenticated account.
+    // Never trust a username supplied by the browser.
+
+    const username = socket.authenticatedUsername;
 
     // =========================================
     // REMOVE THIS SOCKET FROM ANY OLD ROOM
@@ -436,14 +479,40 @@ io.on("connection", (socket) => {
   });
 
   // =========================================
-  // CHAT HISTORY
+  // CHAT HISTORY - SECURITY CHECKS
   // =========================================
 
-  socket.on("get-chat-history", ({ roomId }) => {
+  socket.on("get-chat-history", ({ roomId } = {}) => {
+    // The user must be authenticated.
     if (!socket.authenticatedUserId) {
       return;
     }
 
+    // The user must actually be in a room.
+    const user = users[socket.id];
+
+    if (!user) {
+      return;
+    }
+
+    // Only allow history for the user's current room.
+    if (typeof roomId !== "string" || roomId !== user.roomId) {
+      console.log("Chat history request rejected: wrong room.");
+      return;
+    }
+
+    // Confirm that the socket is still a member of that room.
+    if (!socket.rooms.has(roomId)) {
+      console.log("Chat history request rejected: not a room member.");
+      return;
+    }
+
+    // Only approved rooms are valid.
+    if (!ALLOWED_ROOMS.has(roomId)) {
+      return;
+    }
+
+    // Retrieve history only after all security checks pass.
     const history = db
       .prepare(
         `
@@ -570,46 +639,181 @@ io.on("connection", (socket) => {
   });
 
   // =========================================
-  // CHAT MESSAGE
+  // CHAT MESSAGE - SECURITY CHECKS
   // =========================================
 
-  socket.on("chat-message", ({ roomId, message }) => {
-    if (!socket.authenticatedUserId) {
+  socket.on("chat-message", (payload) => {
+    // Validate the incoming data.
+    if (!payload || typeof payload !== "object") {
       return;
     }
 
+    const { roomId, message } = payload;
+
+    // The sender must be logged in.
+    if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
+      console.log("Chat message rejected: user not logged in.");
+      return;
+    }
+
+    // The sender must currently be in a room.
     const user = users[socket.id];
 
     if (!user) {
+      console.log("Chat message rejected: user is not in a room.");
       return;
     }
 
-    message = message.trim();
-
-    if (!message) {
+    // The sender must belong to the authenticated account.
+    if (user.userId !== socket.authenticatedUserId) {
+      console.log("Chat message rejected: account mismatch.");
       return;
     }
 
+    // Only approved rooms are allowed.
+    if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
+      console.log("Chat message rejected: invalid room.");
+      return;
+    }
+
+    // The message must target the room the sender actually joined.
+    if (roomId !== user.roomId) {
+      console.log("Chat message rejected: wrong room.");
+      return;
+    }
+
+    // Verify Socket.IO still recognizes the room membership.
+    if (!socket.rooms.has(roomId)) {
+      console.log("Chat message rejected: not a room member.");
+      return;
+    }
+
+    // Validate and trim the message.
+    if (typeof message !== "string") {
+      return;
+    }
+
+    const cleanMessage = message.trim();
+
+    if (!cleanMessage || cleanMessage.length > 2000) {
+      return;
+    }
+
+    // Save the message using the authenticated user's database ID.
     db.prepare(
       `
         INSERT INTO messages
         (room_id, user_id, message)
         VALUES (?, ?, ?)
       `,
-    ).run(roomId, socket.authenticatedUserId, message);
+    ).run(user.roomId, socket.authenticatedUserId, cleanMessage);
 
-    io.to(roomId).emit("chat-message", {
-      username: socket.authenticatedUsername,
-      message: message,
+    // Broadcast only to members of the sender's actual room.
+    io.to(user.roomId).emit("chat-message", {
+      username: user.username,
+      message: cleanMessage,
     });
   });
+
+  // =========================================
+  // WEBRTC SIGNALING SECURITY
+  // Verify both users belong to the same room.
+  // =========================================
+
+  function getAuthorizedSignalingPair(target) {
+    // The sender must be authenticated.
+    if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
+      return null;
+    }
+
+    // The sender must be a registered member of a room.
+    const sender = users[socket.id];
+
+    if (!sender) {
+      return null;
+    }
+
+    // The sender's room membership must match their account.
+    if (sender.userId !== socket.authenticatedUserId) {
+      return null;
+    }
+
+    // The sender must belong to an approved room.
+    if (!ALLOWED_ROOMS.has(sender.roomId) || !socket.rooms.has(sender.roomId)) {
+      return null;
+    }
+
+    // The target must be a different socket.
+    if (typeof target !== "string" || !target || target === socket.id) {
+      return null;
+    }
+
+    // The target must currently be in a room.
+    const targetUser = users[target];
+
+    const targetSocket = io.sockets.sockets.get(target);
+
+    if (!targetUser || !targetSocket) {
+      return null;
+    }
+
+    // The target must also be authenticated.
+    if (
+      !targetSocket.authenticatedUserId ||
+      !targetSocket.authenticatedUsername
+    ) {
+      return null;
+    }
+
+    // Verify the target's room membership matches their account.
+    if (targetUser.userId !== targetSocket.authenticatedUserId) {
+      return null;
+    }
+
+    // Both users must be in the SAME room.
+    if (targetUser.roomId !== sender.roomId) {
+      return null;
+    }
+
+    // Verify Socket.IO confirms the target is in that room.
+    if (!targetSocket.rooms.has(sender.roomId)) {
+      return null;
+    }
+
+    return {
+      sender,
+      targetUser,
+      targetSocket,
+    };
+  }
 
   // =========================================
   // OFFER
   // =========================================
 
-  socket.on("offer", ({ target, offer }) => {
-    socket.to(target).emit("offer", {
+  socket.on("offer", (payload = {}) => {
+    const { target, offer } = payload;
+
+    const pair = getAuthorizedSignalingPair(target);
+
+    if (!pair) {
+      console.log("WebRTC offer rejected: invalid room membership.");
+      return;
+    }
+
+    // Validate the offer structure.
+    if (
+      !offer ||
+      typeof offer !== "object" ||
+      offer.type !== "offer" ||
+      typeof offer.sdp !== "string"
+    ) {
+      console.log("WebRTC offer rejected: invalid offer.");
+      return;
+    }
+
+    // Send the offer directly to the authorized target.
+    pair.targetSocket.emit("offer", {
       sender: socket.id,
       offer: offer,
     });
@@ -619,8 +823,29 @@ io.on("connection", (socket) => {
   // ANSWER
   // =========================================
 
-  socket.on("answer", ({ target, answer }) => {
-    socket.to(target).emit("answer", {
+  socket.on("answer", (payload = {}) => {
+    const { target, answer } = payload;
+
+    const pair = getAuthorizedSignalingPair(target);
+
+    if (!pair) {
+      console.log("WebRTC answer rejected: invalid room membership.");
+      return;
+    }
+
+    // Validate the answer structure.
+    if (
+      !answer ||
+      typeof answer !== "object" ||
+      answer.type !== "answer" ||
+      typeof answer.sdp !== "string"
+    ) {
+      console.log("WebRTC answer rejected: invalid answer.");
+      return;
+    }
+
+    // Send the answer directly to the authorized target.
+    pair.targetSocket.emit("answer", {
       sender: socket.id,
       answer: answer,
     });
@@ -630,8 +855,28 @@ io.on("connection", (socket) => {
   // ICE CANDIDATE
   // =========================================
 
-  socket.on("ice-candidate", ({ target, candidate }) => {
-    socket.to(target).emit("ice-candidate", {
+  socket.on("ice-candidate", (payload = {}) => {
+    const { target, candidate } = payload;
+
+    const pair = getAuthorizedSignalingPair(target);
+
+    if (!pair) {
+      console.log("ICE candidate rejected: invalid room membership.");
+      return;
+    }
+
+    // Validate the ICE candidate.
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      typeof candidate.candidate !== "string"
+    ) {
+      console.log("ICE candidate rejected: invalid candidate.");
+      return;
+    }
+
+    // Send the candidate directly to the authorized target.
+    pair.targetSocket.emit("ice-candidate", {
       sender: socket.id,
       candidate: candidate,
     });
