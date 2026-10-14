@@ -498,6 +498,39 @@ socket.on("session-result", (result) => {
 });
 
 // =========================================
+// SESSION REPLACED BY ANOTHER LOGIN
+// =========================================
+
+socket.on("session-replaced", (data = {}) => {
+  console.warn(data.message || "Your account was signed in elsewhere.");
+
+  // Log out and clean up the existing connection.
+  if (loggedIn) {
+    logout();
+  } else {
+    sessionStorage.removeItem("sessionToken");
+
+    inRoom = false;
+    username = "";
+    userId = null;
+
+    stopAllMedia();
+
+    showLoggedOutButtons();
+    setAuthenticatedUI(false);
+  }
+
+  // Tell the user why they were logged out.
+  openLogin();
+
+  if (loginMessage) {
+    loginMessage.textContent =
+      data.message ||
+      "This account was signed in on another browser. Please log in again.";
+  }
+});
+
+// =========================================
 // LOGIN
 // =========================================
 

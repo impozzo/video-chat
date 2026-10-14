@@ -5,17 +5,13 @@ const crypto = require("crypto");
 const { Server } = require("socket.io");
 
 const app = express();
-
 const server = http.createServer(app);
-
 const io = new Server(server);
 
 app.use(express.static("public"));
 
 // =========================================
 // APPROVED ROOMS
-// Only room IDs in this list can be joined.
-// Keep these IDs synchronized with the room list in the client.
 // =========================================
 
 const ALLOWED_ROOMS = new Set([
@@ -67,6 +63,88 @@ function broadcastRoomCounts() {
 }
 
 // =========================================
+// ONE ACTIVE LOGIN PER ACCOUNT
+// =========================================
+
+function replaceOtherActiveSockets(
+  userId,
+  keepSocketId,
+  restoringSessionToken = null,
+) {
+  let roomCountsChanged = false;
+
+  for (const otherSocket of io.sockets.sockets.values()) {
+    if (
+      otherSocket.id === keepSocketId ||
+      String(otherSocket.authenticatedUserId) !== String(userId)
+    ) {
+      continue;
+    }
+
+    // During a refresh, only replace the previous socket
+    // that is using the SAME session token.
+    //
+    // Never allow an older session to kick out a different
+    // active session just because its page was refreshed.
+    if (
+      restoringSessionToken &&
+      otherSocket.sessionToken !== restoringSessionToken
+    ) {
+      continue;
+    }
+
+    const roomUser = users[otherSocket.id];
+
+    if (roomUser) {
+      otherSocket.to(roomUser.roomId).emit("user-left", {
+        id: otherSocket.id,
+        username: roomUser.username,
+      });
+
+      // Remove this user from camera-watcher lists.
+      for (const [otherId, otherUser] of Object.entries(users)) {
+        if (
+          otherId !== otherSocket.id &&
+          otherUser.roomId === roomUser.roomId
+        ) {
+          io.to(otherId).emit("camera-watcher", {
+            id: otherSocket.id,
+            username: roomUser.username,
+            watching: false,
+          });
+        }
+      }
+
+      otherSocket.leave(roomUser.roomId);
+      delete users[otherSocket.id];
+
+      roomCountsChanged = true;
+    }
+
+    // Invalidate the old socket's authentication.
+    otherSocket.sessionToken = null;
+    otherSocket.authenticatedUserId = null;
+    otherSocket.authenticatedUsername = null;
+
+    // A new login replaces the previous browser.
+    // A page refresh replaces only the old socket using
+    // the same session token and does not show a logout warning.
+    if (!restoringSessionToken) {
+      otherSocket.emit("session-replaced", {
+        message:
+          "This account was signed in on another browser. Please log in again.",
+      });
+    }
+
+    console.log("Previous connection replaced for user ID:", userId);
+  }
+
+  if (roomCountsChanged) {
+    broadcastRoomCounts();
+  }
+}
+
+// =========================================
 // PASSWORD FUNCTIONS
 // =========================================
 
@@ -86,15 +164,18 @@ function verifyPassword(password, storedPassword) {
   }
 
   const salt = parts[0];
-
   const storedHash = parts[1];
 
   const hash = crypto.scryptSync(password, salt, 64).toString("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(hash, "hex"),
-    Buffer.from(storedHash, "hex"),
-  );
+  const expected = Buffer.from(storedHash, "hex");
+  const actual = Buffer.from(hash, "hex");
+
+  if (expected.length !== actual.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(actual, expected);
 }
 
 // =========================================
@@ -107,14 +188,13 @@ function hashSessionToken(token) {
 
 function createSession(userId) {
   const token = crypto.randomBytes(32).toString("hex");
-
   const tokenHash = hashSessionToken(token);
 
   db.prepare(
     `
-        INSERT INTO sessions
-        (user_id, token_hash, expires_at)
-        VALUES (?, ?, datetime('now', '+30 days'))
+      INSERT INTO sessions
+      (user_id, token_hash, expires_at)
+      VALUES (?, ?, datetime('now', '+30 days'))
     `,
   ).run(userId, tokenHash);
 
@@ -126,20 +206,22 @@ function getSessionUser(token) {
     return null;
   }
 
-  return db
-    .prepare(
-      `
-        SELECT
+  return (
+    db
+      .prepare(
+        `
+          SELECT
             users.id,
             users.username
-        FROM sessions
-        JOIN users
+          FROM sessions
+          JOIN users
             ON sessions.user_id = users.id
-        WHERE sessions.token_hash = ?
-        AND sessions.expires_at > datetime('now')
-    `,
-    )
-    .get(hashSessionToken(token));
+          WHERE sessions.token_hash = ?
+            AND sessions.expires_at > datetime('now')
+        `,
+      )
+      .get(hashSessionToken(token)) || null
+  );
 }
 
 function deleteSession(token) {
@@ -149,8 +231,8 @@ function deleteSession(token) {
 
   db.prepare(
     `
-        DELETE FROM sessions
-        WHERE token_hash = ?
+      DELETE FROM sessions
+      WHERE token_hash = ?
     `,
   ).run(hashSessionToken(token));
 }
@@ -161,10 +243,6 @@ function deleteSession(token) {
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
-
-  // =========================================
-  // SEND CURRENT ROOM COUNTS
-  // =========================================
 
   socket.emit("room-counts", getRoomCounts());
 
@@ -180,13 +258,24 @@ io.on("connection", (socket) => {
   // REGISTER
   // =========================================
 
-  socket.on("register-user", ({ username, password }) => {
-    username = username.trim();
+  socket.on("register-user", (payload = {}) => {
+    let { username, password } = payload;
 
-    if (!username || !password) {
+    if (typeof username !== "string" || typeof password !== "string") {
       socket.emit("registration-result", {
         success: false,
         message: "Username and password are required.",
+      });
+
+      return;
+    }
+
+    username = username.trim();
+
+    if (!username || password.length < 6 || password.length > 128) {
+      socket.emit("registration-result", {
+        success: false,
+        message: "Enter a username and a password of 6–128 characters.",
       });
 
       return;
@@ -205,19 +294,20 @@ io.on("connection", (socket) => {
         )
         .run(username, passwordHash);
 
-      console.log(`User registered: ${username}`);
-
-      const sessionToken = createSession(result.lastInsertRowid);
+      const userId = result.lastInsertRowid;
+      const sessionToken = createSession(userId);
 
       socket.sessionToken = sessionToken;
-      socket.authenticatedUserId = result.lastInsertRowid;
+      socket.authenticatedUserId = userId;
       socket.authenticatedUsername = username;
+
+      console.log(`User registered: ${username}`);
 
       socket.emit("registration-result", {
         success: true,
-        userId: result.lastInsertRowid,
-        username: username,
-        sessionToken: sessionToken,
+        userId,
+        username,
+        sessionToken,
       });
     } catch (error) {
       if (error.message.includes("UNIQUE constraint failed")) {
@@ -240,8 +330,28 @@ io.on("connection", (socket) => {
   // LOGIN
   // =========================================
 
-  socket.on("login-user", ({ username, password }) => {
+  socket.on("login-user", (payload = {}) => {
+    let { username, password } = payload;
+
+    if (typeof username !== "string" || typeof password !== "string") {
+      socket.emit("login-result", {
+        success: false,
+        message: "Invalid username or password.",
+      });
+
+      return;
+    }
+
     username = username.trim();
+
+    if (!username || !password || password.length > 128) {
+      socket.emit("login-result", {
+        success: false,
+        message: "Invalid username or password.",
+      });
+
+      return;
+    }
 
     const user = db
       .prepare(
@@ -253,7 +363,7 @@ io.on("connection", (socket) => {
       )
       .get(username);
 
-    if (!user) {
+    if (!user || !verifyPassword(password, user.password)) {
       socket.emit("login-result", {
         success: false,
         message: "Invalid username or password.",
@@ -262,21 +372,19 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (!verifyPassword(password, user.password)) {
-      socket.emit("login-result", {
-        success: false,
-        message: "Invalid username or password.",
-      });
+    // IMPORTANT:
+    // A successful new login invalidates every previous saved
+    // session for this account before creating the new one.
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
 
-      return;
-    }
+    // Immediately remove other active browser connections.
+    replaceOtherActiveSockets(user.id, socket.id);
 
+    // Create the single new active session.
     const sessionToken = createSession(user.id);
 
     socket.sessionToken = sessionToken;
-
     socket.authenticatedUserId = user.id;
-
     socket.authenticatedUsername = user.username;
 
     console.log(`User logged in: ${user.username}`);
@@ -285,7 +393,7 @@ io.on("connection", (socket) => {
       success: true,
       userId: user.id,
       username: user.username,
-      sessionToken: sessionToken,
+      sessionToken,
     });
   });
 
@@ -293,7 +401,9 @@ io.on("connection", (socket) => {
   // RESTORE SESSION
   // =========================================
 
-  socket.on("restore-session", ({ token }) => {
+  socket.on("restore-session", (payload = {}) => {
+    const { token } = payload;
+
     const user = getSessionUser(token);
 
     if (!user) {
@@ -304,10 +414,17 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // IMPORTANT:
+    // Do NOT delete other session records here.
+    //
+    // Only a successful new login should replace the account's
+    // session. A page refresh must not invalidate another browser.
+    //
+    // Replace an old socket only if it is using this exact token.
+    replaceOtherActiveSockets(user.id, socket.id, token);
+
     socket.sessionToken = token;
-
     socket.authenticatedUserId = user.id;
-
     socket.authenticatedUsername = user.username;
 
     console.log(`Session restored: ${user.username}`);
@@ -338,19 +455,24 @@ io.on("connection", (socket) => {
         username: user.username,
       });
 
-      delete users[socket.id];
+      for (const [otherId, otherUser] of Object.entries(users)) {
+        if (otherId !== socket.id && otherUser.roomId === user.roomId) {
+          io.to(otherId).emit("camera-watcher", {
+            id: socket.id,
+            username: user.username,
+            watching: false,
+          });
+        }
+      }
 
+      delete users[socket.id];
       socket.leave(user.roomId);
 
       broadcastRoomCounts();
-    } else {
-      console.log(`${socket.authenticatedUsername || "User"} logged out`);
     }
 
     socket.sessionToken = null;
-
     socket.authenticatedUserId = null;
-
     socket.authenticatedUsername = null;
   });
 
@@ -358,7 +480,9 @@ io.on("connection", (socket) => {
   // JOIN ROOM
   // =========================================
 
-  socket.on("join-room", ({ roomId }) => {
+  socket.on("join-room", (payload = {}) => {
+    const { roomId } = payload;
+
     if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
       socket.emit("join-error", {
         message: "You must be logged in.",
@@ -366,12 +490,6 @@ io.on("connection", (socket) => {
 
       return;
     }
-
-    // =========================================
-    // VALIDATE ROOM
-    // Reject unknown rooms BEFORE leaving the
-    // user's current room.
-    // =========================================
 
     if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
       socket.emit("join-error", {
@@ -382,32 +500,17 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Always use the username attached to the
-    // authenticated account.
-    // Never trust a username supplied by the browser.
-
     const username = socket.authenticatedUsername;
-
-    // =========================================
-    // REMOVE THIS SOCKET FROM ANY OLD ROOM
-    // =========================================
-
     const oldUser = users[socket.id];
 
     if (oldUser && oldUser.roomId && oldUser.roomId !== roomId) {
-      console.log(
-        `${oldUser.username} left room ${oldUser.roomId} to join ${roomId}`,
-      );
-
       socket.to(oldUser.roomId).emit("user-left", {
         id: socket.id,
         username: oldUser.username,
       });
 
-      // Remove from the old Socket.IO room.
       socket.leave(oldUser.roomId);
 
-      // Remove this user from camera-watcher lists.
       for (const [otherId, otherUser] of Object.entries(users)) {
         if (otherId !== socket.id && otherUser.roomId === oldUser.roomId) {
           io.to(otherId).emit("camera-watcher", {
@@ -418,33 +521,22 @@ io.on("connection", (socket) => {
         }
       }
 
-      // Remove the old room membership.
       delete users[socket.id];
-
-      // Update the old room count immediately.
       broadcastRoomCounts();
     }
-
-    // =========================================
-    // GET EXISTING USERS IN NEW ROOM
-    // =========================================
 
     const existingUsers = Object.entries(users)
       .filter(([id, user]) => user.roomId === roomId)
       .map(([id, user]) => ({
-        id: id,
+        id,
         username: user.username,
         camera: Boolean(user.camera),
         microphone: Boolean(user.microphone),
       }));
 
-    // =========================================
-    // ADD USER TO NEW ROOM
-    // =========================================
-
     users[socket.id] = {
-      roomId: roomId,
-      username: username,
+      roomId,
+      username,
       userId: socket.authenticatedUserId,
       camera: false,
       microphone: false,
@@ -454,76 +546,52 @@ io.on("connection", (socket) => {
 
     console.log(`${username} joined room ${roomId}`);
 
-    // Tell the NEW user who is already in the room.
     socket.emit("room-users", existingUsers);
 
-    // Tell everyone else that this user joined.
     socket.to(roomId).emit("user-joined", {
       id: socket.id,
-      username: username,
+      username,
       camera: false,
       microphone: false,
     });
 
-    // Update room counts for everybody.
     broadcastRoomCounts();
-
-    // IMPORTANT:
-    // Do NOT send start-connection to the existing users.
-    //
-    // The new user already received existingUsers above
-    // and will call startConnection() for each existing user.
-    //
-    // Sending start-connection here too would make BOTH
-    // sides create offers at the same time.
   });
 
   // =========================================
-  // CHAT HISTORY - SECURITY CHECKS
+  // CHAT HISTORY
   // =========================================
 
-  socket.on("get-chat-history", ({ roomId } = {}) => {
-    // The user must be authenticated.
+  socket.on("get-chat-history", (payload = {}) => {
+    const { roomId } = payload;
+
     if (!socket.authenticatedUserId) {
       return;
     }
 
-    // The user must actually be in a room.
     const user = users[socket.id];
 
-    if (!user) {
+    if (
+      !user ||
+      typeof roomId !== "string" ||
+      roomId !== user.roomId ||
+      !socket.rooms.has(roomId) ||
+      !ALLOWED_ROOMS.has(roomId)
+    ) {
       return;
     }
 
-    // Only allow history for the user's current room.
-    if (typeof roomId !== "string" || roomId !== user.roomId) {
-      console.log("Chat history request rejected: wrong room.");
-      return;
-    }
-
-    // Confirm that the socket is still a member of that room.
-    if (!socket.rooms.has(roomId)) {
-      console.log("Chat history request rejected: not a room member.");
-      return;
-    }
-
-    // Only approved rooms are valid.
-    if (!ALLOWED_ROOMS.has(roomId)) {
-      return;
-    }
-
-    // Retrieve history only after all security checks pass.
     const history = db
       .prepare(
         `
           SELECT
-              messages.id,
-              messages.message,
-              messages.created_at,
-              users.username
+            messages.id,
+            messages.message,
+            messages.created_at,
+            users.username
           FROM messages
           JOIN users
-              ON messages.user_id = users.id
+            ON messages.user_id = users.id
           WHERE messages.room_id = ?
           ORDER BY messages.id ASC
         `,
@@ -537,17 +605,17 @@ io.on("connection", (socket) => {
   // MEDIA STATE
   // =========================================
 
-  socket.on("media-state", ({ camera, microphone }) => {
+  socket.on("media-state", (payload = {}) => {
+    const { camera, microphone } = payload;
     const user = users[socket.id];
 
-    if (!user) {
+    if (!user || user.userId !== socket.authenticatedUserId) {
       return;
     }
 
     user.camera = Boolean(camera);
     user.microphone = Boolean(microphone);
 
-    // Tell everyone else about the media change.
     socket.to(user.roomId).emit("media-state", {
       id: socket.id,
       username: user.username,
@@ -555,7 +623,6 @@ io.on("connection", (socket) => {
       microphone: user.microphone,
     });
 
-    // Explicitly tell everyone else when the camera goes OFF.
     if (!user.camera) {
       socket.to(user.roomId).emit("remote-camera-off", {
         id: socket.id,
@@ -568,23 +635,19 @@ io.on("connection", (socket) => {
   // CAMERA WATCHING
   // =========================================
 
-  socket.on("camera-watching", ({ target, watching }) => {
+  socket.on("camera-watching", (payload = {}) => {
+    const { target, watching } = payload;
     const watcher = users[socket.id];
-
     const targetUser = users[target];
 
     if (!watcher || !targetUser) {
-      console.log("Camera watching rejected:", {
-        watcher: socket.id,
-        target: target,
-      });
-
       return;
     }
 
-    if (watcher.roomId !== targetUser.roomId) {
-      console.log("Camera watching rejected: different rooms");
-
+    if (
+      watcher.userId !== socket.authenticatedUserId ||
+      watcher.roomId !== targetUser.roomId
+    ) {
       return;
     }
 
@@ -612,14 +675,11 @@ io.on("connection", (socket) => {
       return;
     }
 
-    console.log(`${user.username} left room ${user.roomId}`);
-
     socket.to(user.roomId).emit("user-left", {
       id: socket.id,
       username: user.username,
     });
 
-    // Remove this user from camera-watcher lists.
     for (const [otherId, otherUser] of Object.entries(users)) {
       if (otherId !== socket.id && otherUser.roomId === user.roomId) {
         io.to(otherId).emit("camera-watcher", {
@@ -631,65 +691,34 @@ io.on("connection", (socket) => {
     }
 
     socket.leave(user.roomId);
-
     delete users[socket.id];
 
-    // Update room counts for everybody.
     broadcastRoomCounts();
   });
 
   // =========================================
-  // CHAT MESSAGE - SECURITY CHECKS
+  // CHAT MESSAGE
   // =========================================
 
   socket.on("chat-message", (payload) => {
-    // Validate the incoming data.
     if (!payload || typeof payload !== "object") {
       return;
     }
 
     const { roomId, message } = payload;
-
-    // The sender must be logged in.
-    if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
-      console.log("Chat message rejected: user not logged in.");
-      return;
-    }
-
-    // The sender must currently be in a room.
     const user = users[socket.id];
 
-    if (!user) {
-      console.log("Chat message rejected: user is not in a room.");
-      return;
-    }
-
-    // The sender must belong to the authenticated account.
-    if (user.userId !== socket.authenticatedUserId) {
-      console.log("Chat message rejected: account mismatch.");
-      return;
-    }
-
-    // Only approved rooms are allowed.
-    if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
-      console.log("Chat message rejected: invalid room.");
-      return;
-    }
-
-    // The message must target the room the sender actually joined.
-    if (roomId !== user.roomId) {
-      console.log("Chat message rejected: wrong room.");
-      return;
-    }
-
-    // Verify Socket.IO still recognizes the room membership.
-    if (!socket.rooms.has(roomId)) {
-      console.log("Chat message rejected: not a room member.");
-      return;
-    }
-
-    // Validate and trim the message.
-    if (typeof message !== "string") {
+    if (
+      !socket.authenticatedUserId ||
+      !socket.authenticatedUsername ||
+      !user ||
+      user.userId !== socket.authenticatedUserId ||
+      typeof roomId !== "string" ||
+      !ALLOWED_ROOMS.has(roomId) ||
+      roomId !== user.roomId ||
+      !socket.rooms.has(roomId) ||
+      typeof message !== "string"
+    ) {
       return;
     }
 
@@ -699,7 +728,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Save the message using the authenticated user's database ID.
     db.prepare(
       `
         INSERT INTO messages
@@ -708,7 +736,6 @@ io.on("connection", (socket) => {
       `,
     ).run(user.roomId, socket.authenticatedUserId, cleanMessage);
 
-    // Broadcast only to members of the sender's actual room.
     io.to(user.roomId).emit("chat-message", {
       username: user.username,
       message: cleanMessage,
@@ -717,66 +744,42 @@ io.on("connection", (socket) => {
 
   // =========================================
   // WEBRTC SIGNALING SECURITY
-  // Verify both users belong to the same room.
   // =========================================
 
   function getAuthorizedSignalingPair(target) {
-    // The sender must be authenticated.
     if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
       return null;
     }
 
-    // The sender must be a registered member of a room.
     const sender = users[socket.id];
 
-    if (!sender) {
+    if (
+      !sender ||
+      sender.userId !== socket.authenticatedUserId ||
+      !ALLOWED_ROOMS.has(sender.roomId) ||
+      !socket.rooms.has(sender.roomId)
+    ) {
       return null;
     }
 
-    // The sender's room membership must match their account.
-    if (sender.userId !== socket.authenticatedUserId) {
-      return null;
-    }
-
-    // The sender must belong to an approved room.
-    if (!ALLOWED_ROOMS.has(sender.roomId) || !socket.rooms.has(sender.roomId)) {
-      return null;
-    }
-
-    // The target must be a different socket.
     if (typeof target !== "string" || !target || target === socket.id) {
       return null;
     }
 
-    // The target must currently be in a room.
     const targetUser = users[target];
-
     const targetSocket = io.sockets.sockets.get(target);
 
     if (!targetUser || !targetSocket) {
       return null;
     }
 
-    // The target must also be authenticated.
     if (
       !targetSocket.authenticatedUserId ||
-      !targetSocket.authenticatedUsername
+      !targetSocket.authenticatedUsername ||
+      targetUser.userId !== targetSocket.authenticatedUserId ||
+      targetUser.roomId !== sender.roomId ||
+      !targetSocket.rooms.has(sender.roomId)
     ) {
-      return null;
-    }
-
-    // Verify the target's room membership matches their account.
-    if (targetUser.userId !== targetSocket.authenticatedUserId) {
-      return null;
-    }
-
-    // Both users must be in the SAME room.
-    if (targetUser.roomId !== sender.roomId) {
-      return null;
-    }
-
-    // Verify Socket.IO confirms the target is in that room.
-    if (!targetSocket.rooms.has(sender.roomId)) {
       return null;
     }
 
@@ -793,29 +796,21 @@ io.on("connection", (socket) => {
 
   socket.on("offer", (payload = {}) => {
     const { target, offer } = payload;
-
     const pair = getAuthorizedSignalingPair(target);
 
-    if (!pair) {
-      console.log("WebRTC offer rejected: invalid room membership.");
-      return;
-    }
-
-    // Validate the offer structure.
     if (
+      !pair ||
       !offer ||
       typeof offer !== "object" ||
       offer.type !== "offer" ||
       typeof offer.sdp !== "string"
     ) {
-      console.log("WebRTC offer rejected: invalid offer.");
       return;
     }
 
-    // Send the offer directly to the authorized target.
     pair.targetSocket.emit("offer", {
       sender: socket.id,
-      offer: offer,
+      offer,
     });
   });
 
@@ -825,29 +820,21 @@ io.on("connection", (socket) => {
 
   socket.on("answer", (payload = {}) => {
     const { target, answer } = payload;
-
     const pair = getAuthorizedSignalingPair(target);
 
-    if (!pair) {
-      console.log("WebRTC answer rejected: invalid room membership.");
-      return;
-    }
-
-    // Validate the answer structure.
     if (
+      !pair ||
       !answer ||
       typeof answer !== "object" ||
       answer.type !== "answer" ||
       typeof answer.sdp !== "string"
     ) {
-      console.log("WebRTC answer rejected: invalid answer.");
       return;
     }
 
-    // Send the answer directly to the authorized target.
     pair.targetSocket.emit("answer", {
       sender: socket.id,
-      answer: answer,
+      answer,
     });
   });
 
@@ -857,28 +844,20 @@ io.on("connection", (socket) => {
 
   socket.on("ice-candidate", (payload = {}) => {
     const { target, candidate } = payload;
-
     const pair = getAuthorizedSignalingPair(target);
 
-    if (!pair) {
-      console.log("ICE candidate rejected: invalid room membership.");
-      return;
-    }
-
-    // Validate the ICE candidate.
     if (
+      !pair ||
       !candidate ||
       typeof candidate !== "object" ||
       typeof candidate.candidate !== "string"
     ) {
-      console.log("ICE candidate rejected: invalid candidate.");
       return;
     }
 
-    // Send the candidate directly to the authorized target.
     pair.targetSocket.emit("ice-candidate", {
       sender: socket.id,
-      candidate: candidate,
+      candidate,
     });
   });
 
@@ -897,7 +876,6 @@ io.on("connection", (socket) => {
         username: user.username,
       });
 
-      // Remove this user from camera-watcher lists.
       for (const [otherId, otherUser] of Object.entries(users)) {
         if (otherId !== socket.id && otherUser.roomId === user.roomId) {
           io.to(otherId).emit("camera-watcher", {
@@ -909,8 +887,6 @@ io.on("connection", (socket) => {
       }
 
       delete users[socket.id];
-
-      // Update room counts for everybody.
       broadcastRoomCounts();
     }
 
