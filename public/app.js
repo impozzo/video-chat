@@ -15,6 +15,8 @@ const topCreateAccountButton = document.getElementById(
   "topCreateAccountButton",
 );
 
+const changePasswordButton = document.getElementById("changePasswordButton");
+
 // =========================================
 // REGISTRATION
 // =========================================
@@ -22,12 +24,20 @@ const topCreateAccountButton = document.getElementById(
 const accountArea = document.getElementById("accountArea");
 
 const registerUsernameInput = document.getElementById("registerUsernameInput");
-
+const registerEmailInput = document.getElementById("registerEmailInput");
 const registerPasswordInput = document.getElementById("registerPasswordInput");
 
 const registerButton = document.getElementById("registerButton");
 
 const registrationMessage = document.getElementById("registrationMessage");
+const registerUsernameFeedback = document.getElementById(
+  "registerUsernameFeedback",
+);
+const registerEmailFeedback = document.getElementById("registerEmailFeedback");
+const registerPasswordFeedback = document.getElementById(
+  "registerPasswordFeedback",
+);
+const appNotice = document.getElementById("appNotice");
 
 const closeAccountButton = document.getElementById("closeAccountButton");
 
@@ -46,6 +56,22 @@ const loginButton = document.getElementById("loginButton");
 const loginMessage = document.getElementById("loginMessage");
 
 const closeLoginButton = document.getElementById("closeLoginButton");
+
+// =========================================
+// CHANGE PASSWORD
+// =========================================
+
+const changePasswordArea = document.getElementById("changePasswordArea");
+const currentPasswordInput = document.getElementById("currentPasswordInput");
+const newPasswordInput = document.getElementById("newPasswordInput");
+const confirmNewPasswordInput = document.getElementById(
+  "confirmNewPasswordInput",
+);
+const savePasswordButton = document.getElementById("savePasswordButton");
+const cancelPasswordChangeButton = document.getElementById(
+  "cancelPasswordChangeButton",
+);
+const changePasswordMessage = document.getElementById("changePasswordMessage");
 
 // =========================================
 // TOP BAR
@@ -143,7 +169,6 @@ const sendButton = document.getElementById("sendButton");
 // ROOM ID
 // =========================================
 
-// Approved rooms. The server validates these separately.
 const APPROVED_ROOM_IDS = new Set([
   "general",
   "gaming",
@@ -154,12 +179,10 @@ const APPROVED_ROOM_IDS = new Set([
   "random",
 ]);
 
-// Remember the last selected room without putting it in the URL.
 const savedRoomId = sessionStorage.getItem("videoChatRoomId");
 
 let roomId = APPROVED_ROOM_IDS.has(savedRoomId) ? savedRoomId : "general";
 
-// Always keep the browser at the website's root address.
 if (window.location.pathname !== "/") {
   window.history.replaceState({}, "", "/");
 }
@@ -169,41 +192,25 @@ if (window.location.pathname !== "/") {
 // =========================================
 
 let username = "";
-
 let userId = null;
-
 let loggedIn = false;
-
 let inRoom = false;
-
 let cameraOn = false;
-
 let microphoneOn = false;
-
 let screenSharing = false;
 
 let cameraTrack = null;
-
 let microphoneTrack = null;
-
 let screenTrack = null;
 
 let localStream = new MediaStream();
 
 const peerConnections = {};
-
 const remoteStreams = {};
-
 const remoteNames = {};
-
 const roomPeople = {};
-
 const cameraWatchers = {};
-
 const cameraWatchRequests = {};
-
-// Remote microphones are opt-in.
-// This tracks which remote users the local viewer has chosen to hear.
 const microphoneListeners = {};
 
 // =========================================
@@ -239,44 +246,44 @@ function setAuthenticatedUI(isAuthenticated) {
 // =========================================
 
 function showLoggedInButtons() {
-  // Hide Login
   if (topLoginButton) {
     topLoginButton.style.display = "none";
   }
 
-  // Hide Create Account
   if (topCreateAccountButton) {
     topCreateAccountButton.style.display = "none";
   }
 
-  // Show Logout
+  if (changePasswordButton) {
+    changePasswordButton.style.display = "inline-block";
+  }
+
   if (logoutButton) {
     logoutButton.style.display = "inline-block";
   }
 
-  // Update login status
   if (loginStatusText) {
     loginStatusText.textContent = `🟢 Logged in as ${username}`;
   }
 }
 
 function showLoggedOutButtons() {
-  // Show Login
   if (topLoginButton) {
     topLoginButton.style.display = "inline-block";
   }
 
-  // Show Create Account
   if (topCreateAccountButton) {
     topCreateAccountButton.style.display = "inline-block";
   }
 
-  // Hide Logout
+  if (changePasswordButton) {
+    changePasswordButton.style.display = "none";
+  }
+
   if (logoutButton) {
     logoutButton.style.display = "none";
   }
 
-  // Update login status
   if (loginStatusText) {
     loginStatusText.textContent = "🔴 Not logged in";
   }
@@ -287,12 +294,24 @@ function showLoggedOutButtons() {
 // =========================================
 
 closeLogin();
-
 closeAccount();
 
 showLoggedOutButtons();
-
 setAuthenticatedUI(false);
+
+if (registerUsernameInput) {
+  registerUsernameInput.dataset.touched = "false";
+}
+
+if (registerEmailInput) {
+  registerEmailInput.dataset.touched = "false";
+}
+
+if (registerPasswordInput) {
+  registerPasswordInput.dataset.touched = "false";
+}
+
+updateRegistrationValidation();
 
 // =========================================
 // LOGIN AREA
@@ -323,6 +342,7 @@ function closeLogin() {
 if (topLoginButton) {
   topLoginButton.addEventListener("click", () => {
     closeAccount();
+    closeChangePassword();
     openLogin();
   });
 }
@@ -334,8 +354,158 @@ if (closeLoginButton) {
 }
 
 // =========================================
+// CHANGE PASSWORD AREA
+// =========================================
+
+function openChangePassword() {
+  if (!loggedIn || !changePasswordArea) {
+    return;
+  }
+
+  closeLogin();
+  closeAccount();
+
+  changePasswordArea.style.display = "block";
+
+  if (changePasswordMessage) {
+    changePasswordMessage.textContent = "";
+  }
+
+  if (currentPasswordInput) {
+    currentPasswordInput.focus();
+  }
+}
+
+function closeChangePassword() {
+  if (changePasswordArea) {
+    changePasswordArea.style.display = "none";
+  }
+
+  if (currentPasswordInput) {
+    currentPasswordInput.value = "";
+  }
+
+  if (newPasswordInput) {
+    newPasswordInput.value = "";
+  }
+
+  if (confirmNewPasswordInput) {
+    confirmNewPasswordInput.value = "";
+  }
+
+  if (changePasswordMessage) {
+    changePasswordMessage.textContent = "";
+  }
+}
+
+if (changePasswordButton) {
+  changePasswordButton.addEventListener("click", openChangePassword);
+}
+
+if (cancelPasswordChangeButton) {
+  cancelPasswordChangeButton.addEventListener("click", closeChangePassword);
+}
+
+if (savePasswordButton) {
+  savePasswordButton.addEventListener("click", changePassword);
+}
+
+async function changePassword() {
+  if (!loggedIn) {
+    if (changePasswordMessage) {
+      changePasswordMessage.textContent =
+        "You must be logged in to change your password.";
+    }
+
+    return;
+  }
+
+  const currentPassword = currentPasswordInput?.value || "";
+  const newPassword = newPasswordInput?.value || "";
+  const confirmNewPassword = confirmNewPasswordInput?.value || "";
+
+  if (!currentPassword || !newPassword || !confirmNewPassword) {
+    changePasswordMessage.textContent = "Fill in all three password fields.";
+    return;
+  }
+
+  if (newPassword.length < 12 || newPassword.length > 128) {
+    changePasswordMessage.textContent =
+      "Your new password must be between 12 and 128 characters long.";
+    return;
+  }
+
+  if (newPassword !== confirmNewPassword) {
+    changePasswordMessage.textContent = "The new passwords do not match.";
+    return;
+  }
+
+  if (currentPassword === newPassword) {
+    changePasswordMessage.textContent =
+      "Your new password must be different from your current password.";
+    return;
+  }
+
+  savePasswordButton.disabled = true;
+  changePasswordMessage.textContent = "Changing password...";
+
+  socket.emit("change-password", {
+    currentPassword,
+    newPassword,
+  });
+}
+
+socket.on("password-change-result", (result = {}) => {
+  if (savePasswordButton) {
+    savePasswordButton.disabled = false;
+  }
+
+  if (!result.success) {
+    if (changePasswordMessage) {
+      changePasswordMessage.textContent =
+        result.message || "Unable to change your password.";
+    }
+
+    return;
+  }
+
+  const successMessage =
+    result.message || "Password changed. Please log in with your new password.";
+
+  logout();
+  closeChangePassword();
+  openLogin();
+
+  if (loginMessage) {
+    loginMessage.textContent = successMessage;
+  }
+});
+
+// =========================================
 // ACCOUNT AREA
 // =========================================
+
+function showAppNotice(message, isError = false) {
+  if (!appNotice) {
+    return;
+  }
+
+  appNotice.textContent = message;
+  appNotice.classList.toggle("error", Boolean(isError));
+  appNotice.style.display = message ? "block" : "none";
+
+  if (showAppNotice.timeoutId) {
+    clearTimeout(showAppNotice.timeoutId);
+  }
+
+  if (message) {
+    showAppNotice.timeoutId = setTimeout(() => {
+      appNotice.style.display = "none";
+      appNotice.textContent = "";
+      appNotice.classList.remove("error");
+    }, 8000);
+  }
+}
 
 function openAccount() {
   if (!accountArea) {
@@ -343,6 +513,7 @@ function openAccount() {
   }
 
   accountArea.style.display = "block";
+  updateRegistrationValidation();
 
   if (registerUsernameInput) {
     registerUsernameInput.focus();
@@ -362,6 +533,7 @@ function closeAccount() {
 if (topCreateAccountButton) {
   topCreateAccountButton.addEventListener("click", () => {
     closeLogin();
+    closeChangePassword();
     openAccount();
   });
 }
@@ -373,6 +545,139 @@ if (closeAccountButton) {
 }
 
 // =========================================
+// CREATE ACCOUNT LIVE VALIDATION
+// =========================================
+
+function updateRegistrationValidation() {
+  if (
+    !registerUsernameInput ||
+    !registerEmailInput ||
+    !registerPasswordInput ||
+    !registerButton
+  ) {
+    return false;
+  }
+
+  const newUsername = registerUsernameInput.value.trim();
+  const email = registerEmailInput.value.trim();
+  const password = registerPasswordInput.value;
+
+  const usernameTouched = registerUsernameInput.dataset.touched === "true";
+  const emailTouched = registerEmailInput.dataset.touched === "true";
+  const passwordTouched = registerPasswordInput.dataset.touched === "true";
+
+  const usernameLengthValid =
+    newUsername.length >= 3 && newUsername.length <= 20;
+
+  const usernameCharactersValid = /^[A-Za-z0-9_]+$/.test(newUsername);
+
+  const usernameValid = usernameLengthValid && usernameCharactersValid;
+
+  const emailValid =
+    email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+
+  const passwordValid = password.length >= 12 && password.length <= 128;
+
+  if (registerUsernameFeedback) {
+    registerUsernameFeedback.classList.toggle("valid", usernameValid);
+
+    if (!newUsername) {
+      registerUsernameFeedback.textContent = usernameTouched
+        ? "Username is required."
+        : "";
+    } else if (newUsername.length < 3) {
+      registerUsernameFeedback.textContent = "Use at least 3 characters.";
+    } else if (newUsername.length > 20) {
+      registerUsernameFeedback.textContent = "Use no more than 20 characters.";
+    } else if (!usernameCharactersValid) {
+      registerUsernameFeedback.textContent =
+        "Use letters, numbers, and underscores only.";
+    } else {
+      registerUsernameFeedback.textContent = "Username looks good.";
+    }
+  }
+
+  if (registerEmailFeedback) {
+    registerEmailFeedback.classList.toggle("valid", emailValid);
+
+    if (!email) {
+      registerEmailFeedback.textContent = emailTouched
+        ? "Email address is required."
+        : "";
+    } else if (email.length > 254) {
+      registerEmailFeedback.textContent = "Email address is too long.";
+    } else if (!emailValid) {
+      registerEmailFeedback.textContent = "Enter a valid email address.";
+    } else {
+      registerEmailFeedback.textContent = "Email address looks good.";
+    }
+  }
+
+  if (registerPasswordFeedback) {
+    registerPasswordFeedback.classList.toggle("valid", passwordValid);
+
+    if (!password) {
+      registerPasswordFeedback.textContent = passwordTouched
+        ? "Password is required."
+        : "";
+    } else if (password.length < 12) {
+      registerPasswordFeedback.textContent = `${12 - password.length} more character${
+        12 - password.length === 1 ? "" : "s"
+      } needed.`;
+    } else if (password.length > 128) {
+      registerPasswordFeedback.textContent = "Use no more than 128 characters.";
+    } else {
+      registerPasswordFeedback.textContent = "Password length looks good.";
+    }
+  }
+
+  const formValid = usernameValid && emailValid && passwordValid;
+
+  registerButton.disabled = !formValid;
+
+  return formValid;
+}
+
+if (registerUsernameInput) {
+  registerUsernameInput.addEventListener("input", () => {
+    registerUsernameInput.dataset.touched = "true";
+
+    if (registrationMessage) {
+      registrationMessage.textContent = "";
+    }
+
+    showAppNotice("");
+    updateRegistrationValidation();
+  });
+}
+
+if (registerEmailInput) {
+  registerEmailInput.addEventListener("input", () => {
+    registerEmailInput.dataset.touched = "true";
+
+    if (registrationMessage) {
+      registrationMessage.textContent = "";
+    }
+
+    showAppNotice("");
+    updateRegistrationValidation();
+  });
+}
+
+if (registerPasswordInput) {
+  registerPasswordInput.addEventListener("input", () => {
+    registerPasswordInput.dataset.touched = "true";
+
+    if (registrationMessage) {
+      registrationMessage.textContent = "";
+    }
+
+    showAppNotice("");
+    updateRegistrationValidation();
+  });
+}
+
+// =========================================
 // REGISTER ACCOUNT
 // =========================================
 
@@ -380,22 +685,31 @@ if (registerButton) {
   registerButton.addEventListener("click", registerAccount);
 }
 
-async function registerAccount() {
-  const newUsername = registerUsernameInput.value.trim();
-
-  const password = registerPasswordInput.value;
-
-  if (!newUsername || !password) {
-    registrationMessage.textContent = "Enter a username and password.";
+function registerAccount() {
+  if (!updateRegistrationValidation()) {
+    if (registrationMessage) {
+      registrationMessage.textContent =
+        "Check the username, email, and password requirements above.";
+    }
 
     return;
   }
 
-  registrationMessage.textContent = "Creating account...";
+  const newUsername = registerUsernameInput.value.trim();
+  const email = registerEmailInput.value.trim().toLowerCase();
+  const password = registerPasswordInput.value;
+
+  registerButton.disabled = true;
+
+  if (registrationMessage) {
+    registrationMessage.textContent =
+      "Creating account and sending verification email...";
+  }
 
   socket.emit("register-user", {
     username: newUsername,
-    password: password,
+    email,
+    password,
   });
 }
 
@@ -403,7 +717,7 @@ async function registerAccount() {
 // REGISTER RESULT
 // =========================================
 
-socket.on("registration-result", (result) => {
+socket.on("registration-result", (result = {}) => {
   console.log("Registration result:", result);
 
   if (!result.success) {
@@ -412,36 +726,103 @@ socket.on("registration-result", (result) => {
         result.message || "Unable to create account.";
     }
 
+    updateRegistrationValidation();
+
     console.log("Registration failed:", result.message);
+
     return;
   }
 
+  // New accounts require email verification. The server does not
+  // issue a session token until the email address has been verified.
+  if (result.requiresVerification) {
+    if (registerUsernameInput) {
+      registerUsernameInput.value = "";
+      registerUsernameInput.dataset.touched = "false";
+    }
+
+    if (registerEmailInput) {
+      registerEmailInput.value = "";
+      registerEmailInput.dataset.touched = "false";
+    }
+
+    if (registerPasswordInput) {
+      registerPasswordInput.value = "";
+      registerPasswordInput.dataset.touched = "false";
+    }
+
+    updateRegistrationValidation();
+
+    loggedIn = false;
+    inRoom = false;
+    username = "";
+    userId = null;
+
+    sessionStorage.removeItem("sessionToken");
+
+    closeAccount();
+    closeChangePassword();
+
+    showLoggedOutButtons();
+    setAuthenticatedUI(false);
+
+    openLogin();
+
+    const verificationMessage =
+      result.message ||
+      `Account created. Check ${
+        result.email || "your inbox"
+      } for the verification link before logging in.`;
+
+    if (loginMessage) {
+      loginMessage.textContent = verificationMessage;
+    }
+
+    showAppNotice(verificationMessage);
+
+    console.log("Account created; email verification is required.");
+
+    return;
+  }
+
+  // Backward-compatible handling if the server returns an immediate session.
   loggedIn = true;
-
   username = result.username;
-
   userId = result.userId;
 
   if (result.sessionToken) {
     sessionStorage.setItem("sessionToken", result.sessionToken);
   }
 
+  if (registerUsernameInput) {
+    registerUsernameInput.value = "";
+    registerUsernameInput.dataset.touched = "false";
+  }
+
+  if (registerEmailInput) {
+    registerEmailInput.value = "";
+    registerEmailInput.dataset.touched = "false";
+  }
+
+  if (registerPasswordInput) {
+    registerPasswordInput.value = "";
+    registerPasswordInput.dataset.touched = "false";
+  }
+
+  updateRegistrationValidation();
+
   closeAccount();
   closeLogin();
 
   showLoggedInButtons();
   setAuthenticatedUI(true);
+  closeChangePassword();
 
-  if (registerUsernameInput) {
-    registerUsernameInput.value = "";
-  }
-
-  if (registerPasswordInput) {
-    registerPasswordInput.value = "";
-  }
+  showAppNotice(
+    `Account created successfully. You're now logged in as ${username}.`,
+  );
 
   updateRoomInfo();
-
   joinRoom();
 
   console.log("Account created and logged in:", username);
@@ -466,34 +847,27 @@ socket.on("session-result", (result) => {
     sessionStorage.removeItem("sessionToken");
 
     loggedIn = false;
-
     username = "";
-
     userId = null;
 
     showLoggedOutButtons();
-
     setAuthenticatedUI(false);
 
     return;
   }
 
   loggedIn = true;
-
   username = result.username;
-
   userId = result.userId;
 
   showLoggedInButtons();
-
   setAuthenticatedUI(true);
 
   closeLogin();
-
   closeAccount();
+  closeChangePassword();
 
   updateRoomInfo();
-
   joinRoom();
 });
 
@@ -504,7 +878,6 @@ socket.on("session-result", (result) => {
 socket.on("session-replaced", (data = {}) => {
   console.warn(data.message || "Your account was signed in elsewhere.");
 
-  // Log out and clean up the existing connection.
   if (loggedIn) {
     logout();
   } else {
@@ -520,7 +893,6 @@ socket.on("session-replaced", (data = {}) => {
     setAuthenticatedUI(false);
   }
 
-  // Tell the user why they were logged out.
   openLogin();
 
   if (loginMessage) {
@@ -540,12 +912,10 @@ if (loginButton) {
 
 async function loginAccount() {
   const loginUsername = loginUsernameInput.value.trim();
-
   const password = loginPasswordInput.value;
 
   if (!loginUsername || !password) {
     loginMessage.textContent = "Enter your username and password.";
-
     return;
   }
 
@@ -553,7 +923,7 @@ async function loginAccount() {
 
   socket.emit("login-user", {
     username: loginUsername,
-    password: password,
+    password,
   });
 }
 
@@ -579,8 +949,10 @@ socket.on("login-result", (result) => {
 
   showLoggedInButtons();
   setAuthenticatedUI(true);
+
   closeLogin();
   closeAccount();
+  closeChangePassword();
 
   loginPasswordInput.value = "";
 
@@ -624,6 +996,9 @@ function logout() {
   Object.keys(remoteNames).forEach((id) => delete remoteNames[id]);
   Object.keys(roomPeople).forEach((id) => delete roomPeople[id]);
   Object.keys(cameraWatchers).forEach((id) => delete cameraWatchers[id]);
+  Object.keys(cameraWatchRequests).forEach(
+    (id) => delete cameraWatchRequests[id],
+  );
   Object.keys(microphoneListeners).forEach(
     (id) => delete microphoneListeners[id],
   );
@@ -651,6 +1026,7 @@ function logout() {
 
   closeLogin();
   closeAccount();
+  closeChangePassword();
 
   console.log("Logged out.");
 }
@@ -819,9 +1195,6 @@ socket.on("user-joined", (user) => {
 
   updatePeopleList();
 
-  // The person already in the room initiates the connection.
-  // This allows their existing camera track to be included
-  // in the initial WebRTC offer.
   startConnection(user.id, user.username);
 });
 
@@ -858,8 +1231,8 @@ socket.on(
       };
     }
 
-    roomPeople[remoteUserId].camera = !!camera;
-    roomPeople[remoteUserId].microphone = !!microphone;
+    roomPeople[remoteUserId].camera = Boolean(camera);
+    roomPeople[remoteUserId].microphone = Boolean(microphone);
 
     if (!microphone) {
       delete microphoneListeners[remoteUserId];
@@ -990,7 +1363,7 @@ function updatePeopleList() {
 
       speakerButton.className = "speaker-status-button";
 
-      const listening = !!microphoneListeners[user.id];
+      const listening = Boolean(microphoneListeners[user.id]);
 
       speakerButton.textContent = listening ? "🔊" : "🔇";
 
@@ -1010,6 +1383,7 @@ function updatePeopleList() {
     peopleList.appendChild(row);
   });
 }
+
 // =========================================
 // WATCHING MY CAMERA
 // =========================================
@@ -1267,8 +1641,6 @@ function createPeerConnection(remoteUserId, userName, initiator) {
 
       if (container && video) {
         video.srcObject = stream;
-        // Keep video-element audio muted; remote sound is controlled
-        // by the separate speaker button and audio element.
         video.muted = true;
         container.style.display = "block";
 
@@ -1622,13 +1994,11 @@ async function toggleMicrophoneListener(remoteUserId) {
 
   microphoneListeners[remoteUserId] = !microphoneListeners[remoteUserId];
 
-  // Update the speaker icon immediately.
   updatePeopleList();
 
   const audio = document.getElementById(`audio-${remoteUserId}`);
 
   if (!microphoneListeners[remoteUserId] && audio) {
-    // Stop playback immediately when the speaker is switched off.
     audio.muted = true;
     audio.volume = 0;
     audio.pause();
@@ -1910,8 +2280,6 @@ function ensureRemoteVideo(remoteUserId, userName, stream) {
 function showRemoteVideo(remoteUserId) {
   console.log("Camera button clicked for:", remoteUserId);
 
-  // Remember the viewer's request even if the initial video track
-  // has not arrived yet. The ontrack handler will show it later.
   cameraWatchRequests[remoteUserId] = true;
 
   const person = roomPeople[remoteUserId];
@@ -1922,26 +2290,23 @@ function showRemoteVideo(remoteUserId) {
   }
 
   const userName = remoteNames[remoteUserId] || person.username || "User";
+
   const pc = peerConnections[remoteUserId];
 
-  // The existing room member initiates the WebRTC connection when this
-  // user joins. Do not create a second offer from a camera click: that can
-  // collide with the offer already being sent by the other browser.
   if (!pc) {
     console.log("Waiting for the initial WebRTC connection with:", userName);
+
     return;
   }
 
   const stream = remoteStreams[remoteUserId];
+
   const hasLiveVideoTrack = Boolean(
     stream &&
     stream.getVideoTracks().some((track) => track.readyState === "live"),
   );
 
   if (!hasLiveVideoTrack) {
-    // Keep the viewing request queued. Do not renegotiate from the viewer
-    // just because the remote track has not arrived yet. The ontrack
-    // handler below will display the camera as soon as it arrives.
     console.log("Waiting for the remote video track from:", userName);
     return;
   }
@@ -1949,6 +2314,7 @@ function showRemoteVideo(remoteUserId) {
   ensureRemoteVideo(remoteUserId, userName, stream);
 
   const container = document.getElementById(`video-container-${remoteUserId}`);
+
   const video = document.getElementById(`video-${remoteUserId}`);
 
   if (!container || !video) {
@@ -1957,7 +2323,6 @@ function showRemoteVideo(remoteUserId) {
   }
 
   video.srcObject = stream;
-  // Remote audio playback remains controlled by the separate speaker button.
   video.muted = true;
   container.style.display = "block";
 
@@ -2214,22 +2579,18 @@ socket.on("chat-history", (chatHistory) => {
 
 roomRows.forEach((roomRow) => {
   roomRow.addEventListener("click", (event) => {
-    // Prevent navigation to a room URL.
     event.preventDefault();
 
     if (!loggedIn || !inRoom) {
       return;
     }
 
-    // Get the selected room from the room list.
     const newRoomId = roomRow.dataset.room;
 
-    // Only allow rooms in the approved room list.
     if (!APPROVED_ROOM_IDS.has(newRoomId)) {
       return;
     }
 
-    // Do nothing if already in this room.
     if (newRoomId === roomId) {
       return;
     }
@@ -2252,6 +2613,9 @@ roomRows.forEach((roomRow) => {
     Object.keys(remoteNames).forEach((id) => delete remoteNames[id]);
     Object.keys(roomPeople).forEach((id) => delete roomPeople[id]);
     Object.keys(cameraWatchers).forEach((id) => delete cameraWatchers[id]);
+    Object.keys(cameraWatchRequests).forEach(
+      (id) => delete cameraWatchRequests[id],
+    );
     Object.keys(microphoneListeners).forEach(
       (id) => delete microphoneListeners[id],
     );
@@ -2275,10 +2639,8 @@ roomRows.forEach((roomRow) => {
 
     roomId = newRoomId;
 
-    // Remember the selected room without putting it in the URL.
     sessionStorage.setItem("videoChatRoomId", roomId);
 
-    // Keep the browser address at the main website address.
     if (window.location.pathname !== "/") {
       window.history.replaceState({}, "", "/");
     }
@@ -2305,6 +2667,7 @@ function removePeer(remoteUserId) {
   delete remoteStreams[remoteUserId];
   delete remoteNames[remoteUserId];
   delete cameraWatchers[remoteUserId];
+  delete cameraWatchRequests[remoteUserId];
   delete microphoneListeners[remoteUserId];
 
   const audio = document.getElementById(`audio-${remoteUserId}`);

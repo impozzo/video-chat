@@ -3,7 +3,6 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <meta
@@ -105,6 +104,7 @@
 
       #topLoginButton,
       #topCreateAccountButton,
+      #changePasswordButton,
       #topBarRight #logoutButton {
         padding: 8px 10px;
         background: #333;
@@ -120,7 +120,8 @@
       }
 
       #topLoginButton:hover:not(:disabled),
-      #topCreateAccountButton:hover:not(:disabled) {
+      #topCreateAccountButton:hover:not(:disabled),
+      #changePasswordButton:hover:not(:disabled) {
         background: #444;
       }
 
@@ -187,6 +188,7 @@
 
         #topLoginButton,
         #topCreateAccountButton,
+        #changePasswordButton,
         #topBarRight #logoutButton {
           padding: 7px 8px;
           font-size: 12px;
@@ -194,7 +196,7 @@
       }
 
       /* =========================================
-         TOP
+         PAGE HEADER
          ========================================= */
 
       #top {
@@ -221,11 +223,12 @@
       }
 
       /* =========================================
-         ACCOUNT / LOGIN
+         ACCOUNT / LOGIN / CHANGE PASSWORD
          ========================================= */
 
       #accountArea,
-      #loginArea {
+      #loginArea,
+      #changePasswordArea {
         display: none;
         width: calc(100% - 20px);
         max-width: 450px;
@@ -237,15 +240,20 @@
       }
 
       #accountArea h2,
-      #loginArea h2 {
+      #loginArea h2,
+      #changePasswordArea h2 {
         margin-top: 0;
         font-size: 20px;
       }
 
       #registerUsernameInput,
+      #registerEmailInput,
       #registerPasswordInput,
       #loginUsernameInput,
-      #loginPasswordInput {
+      #loginPasswordInput,
+      #currentPasswordInput,
+      #newPasswordInput,
+      #confirmNewPasswordInput {
         display: block;
         width: 100%;
         padding: 12px;
@@ -256,7 +264,8 @@
       }
 
       #accountArea button,
-      #loginArea button {
+      #loginArea button,
+      #changePasswordArea button {
         width: 100%;
         padding: 12px;
         margin-top: 5px;
@@ -267,15 +276,59 @@
       }
 
       #accountArea button:hover:not(:disabled),
-      #loginArea button:hover:not(:disabled) {
+      #loginArea button:hover:not(:disabled),
+      #changePasswordArea button:hover:not(:disabled) {
         background: #555;
       }
 
       #registrationMessage,
-      #loginMessage {
+      #loginMessage,
+      #changePasswordMessage {
         min-height: 20px;
         margin-top: 10px;
         font-size: 14px;
+      }
+
+      .account-help {
+        margin: -2px 0 8px;
+        color: #c9c9c9;
+        font-size: 12px;
+        line-height: 1.4;
+        text-align: left;
+      }
+
+      .account-field-feedback {
+        min-height: 17px;
+        margin: -3px 0 8px;
+        color: #ffb0a8;
+        font-size: 12px;
+        line-height: 1.4;
+        text-align: left;
+      }
+
+      .account-field-feedback.valid {
+        color: #91e4a3;
+      }
+
+      #appNotice {
+        display: none;
+        width: calc(100% - 20px);
+        max-width: 700px;
+        margin: 12px auto;
+        padding: 10px 12px;
+        border: 1px solid #456b4b;
+        border-radius: 7px;
+        background: #203825;
+        color: #d7ffe0;
+        font-size: 14px;
+        line-height: 1.4;
+        text-align: center;
+      }
+
+      #appNotice.error {
+        border-color: #854741;
+        background: #3e2422;
+        color: #ffe1dd;
       }
 
       /* =========================================
@@ -827,7 +880,8 @@
 
       @media (min-width: 900px) {
         #accountArea,
-        #loginArea {
+        #loginArea,
+        #changePasswordArea {
           margin: 20px auto;
         }
 
@@ -879,9 +933,14 @@
       <div id="topBarRight">
         <button id="topLoginButton">Login</button>
         <button id="topCreateAccountButton">Create Account</button>
+        <button id="changePasswordButton" style="display: none">
+          Change Password
+        </button>
         <button id="logoutButton" style="display: none">Logout</button>
       </div>
     </div>
+
+    <div id="appNotice" role="status" aria-live="polite"></div>
 
     <!-- =========================================
          REGISTER
@@ -890,23 +949,87 @@
     <div id="accountArea">
       <h2>Create Account</h2>
 
+      <label
+        for="registerUsernameInput"
+        style="display: block; text-align: left"
+      >
+        Username
+      </label>
+
       <input
         id="registerUsernameInput"
         type="text"
-        placeholder="Username"
+        placeholder="Choose a username"
         autocomplete="username"
+        minlength="3"
+        maxlength="20"
+        pattern="[A-Za-z0-9_]+"
+        aria-describedby="registerUsernameHelp registerUsernameFeedback"
       />
+
+      <div id="registerUsernameHelp" class="account-help">
+        3–20 characters. Use letters, numbers, and underscores only.
+      </div>
+
+      <div
+        id="registerUsernameFeedback"
+        class="account-field-feedback"
+        aria-live="polite"
+      ></div>
+
+      <label for="registerEmailInput" style="display: block; text-align: left">
+        Email Address
+      </label>
+
+      <input
+        id="registerEmailInput"
+        type="email"
+        placeholder="you@example.com"
+        autocomplete="email"
+        maxlength="254"
+        aria-describedby="registerEmailHelp registerEmailFeedback"
+      />
+
+      <div id="registerEmailHelp" class="account-help">
+        Use an email address you can access. We'll send a verification link.
+      </div>
+
+      <div
+        id="registerEmailFeedback"
+        class="account-field-feedback"
+        aria-live="polite"
+      ></div>
+
+      <label
+        for="registerPasswordInput"
+        style="display: block; text-align: left"
+      >
+        Password
+      </label>
 
       <input
         id="registerPasswordInput"
         type="password"
-        placeholder="Password"
+        placeholder="Create a password"
         autocomplete="new-password"
+        minlength="12"
+        maxlength="128"
+        aria-describedby="registerPasswordHelp registerPasswordFeedback"
       />
 
-      <button id="registerButton">Create Account</button>
+      <div id="registerPasswordHelp" class="account-help">
+        12–128 characters. A longer passphrase is a good choice.
+      </div>
 
-      <div id="registrationMessage"></div>
+      <div
+        id="registerPasswordFeedback"
+        class="account-field-feedback"
+        aria-live="polite"
+      ></div>
+
+      <button id="registerButton" disabled>Create Account</button>
+
+      <div id="registrationMessage" aria-live="polite"></div>
     </div>
 
     <!-- =========================================
@@ -936,6 +1059,46 @@
     </div>
 
     <!-- =========================================
+         CHANGE PASSWORD
+         ========================================= -->
+
+    <div id="changePasswordArea">
+      <h2>Change Password</h2>
+
+      <p>
+        Enter your current password and choose a new password between 12 and 128
+        characters.
+      </p>
+
+      <input
+        id="currentPasswordInput"
+        type="password"
+        placeholder="Current password"
+        autocomplete="current-password"
+      />
+
+      <input
+        id="newPasswordInput"
+        type="password"
+        placeholder="New password (12–128 characters)"
+        autocomplete="new-password"
+      />
+
+      <input
+        id="confirmNewPasswordInput"
+        type="password"
+        placeholder="Confirm new password"
+        autocomplete="new-password"
+      />
+
+      <button id="savePasswordButton">Change Password</button>
+
+      <button id="cancelPasswordChangeButton" type="button">Cancel</button>
+
+      <div id="changePasswordMessage" aria-live="polite"></div>
+    </div>
+
+    <!-- =========================================
          ROOM SELECTION
          ========================================= -->
 
@@ -950,51 +1113,43 @@
 
       <div class="room-header">
         <div>Room Name</div>
-
         <div class="room-header-users">Users</div>
       </div>
 
       <div id="roomList">
-        <a class="room-row" href="/room/general" data-room="general">
-          <span class="room-name"> General </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="general">
+          <span class="room-name">General</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/gaming" data-room="gaming">
-          <span class="room-name"> Gaming </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="gaming">
+          <span class="room-name">Gaming</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/music" data-room="music">
-          <span class="room-name"> Music </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="music">
+          <span class="room-name">Music</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/movies" data-room="movies">
-          <span class="room-name"> Movies </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="movies">
+          <span class="room-name">Movies</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/sports" data-room="sports">
-          <span class="room-name"> Sports </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="sports">
+          <span class="room-name">Sports</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/technology" data-room="technology">
-          <span class="room-name"> Technology </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="technology">
+          <span class="room-name">Technology</span>
+          <span class="room-users">0</span>
         </a>
 
-        <a class="room-row" href="/room/random" data-room="random">
-          <span class="room-name"> Random </span>
-
-          <span class="room-users"> 0 </span>
+        <a class="room-row" href="/" data-room="random">
+          <span class="room-name">Random</span>
+          <span class="room-users">0</span>
         </a>
       </div>
     </div>
