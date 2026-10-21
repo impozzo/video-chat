@@ -1,3 +1,6 @@
 node_modules/
 video-chat.db
 .env	est-email.js
+
+.env
+test-email.js
