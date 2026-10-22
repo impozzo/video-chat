@@ -127,8 +127,55 @@ socket.on("room-counts", (counts) => {
   updateRoomCounts(counts);
 });
 
-socket.on("connect", () => {
+function handleSocketConnect() {
+  console.log("Socket connected:", socket.id);
+
+  // Refresh the room counts.
   socket.emit("get-room-counts");
+
+  // Restore the existing login session after connecting or reconnecting.
+  const token = sessionStorage.getItem("sessionToken");
+
+  if (token) {
+    console.log("Restoring login session...");
+    socket.emit("restore-session", { token });
+  } else if (loggedIn) {
+    // Do not leave the interface logged in if its session token is missing.
+    console.warn("Session token missing. Returning to logged-out state.");
+
+    loggedIn = false;
+    inRoom = false;
+    username = "";
+    userId = null;
+
+    stopAllMedia();
+
+    showLoggedOutButtons();
+    setAuthenticatedUI(false);
+  }
+}
+
+socket.on("connect", handleSocketConnect);
+
+// Also handle the unlikely case where the socket connected before
+// this handler was registered.
+if (socket.connected) {
+  handleSocketConnect();
+}
+
+socket.on("disconnect", (reason) => {
+  console.warn("Socket disconnected:", reason);
+
+  // The server no longer has this socket in its room.
+  inRoom = false;
+
+  // Clear stale remote media and room information.
+  clearRemoteRoomState();
+
+  // Keep the login session so it can be restored on reconnect.
+  if (loggedIn) {
+    showAppNotice("Connection lost. Trying to reconnect...", true);
+  }
 });
 
 // =========================================
@@ -212,6 +259,57 @@ const roomPeople = {};
 const cameraWatchers = {};
 const cameraWatchRequests = {};
 const microphoneListeners = {};
+
+function clearRemoteRoomState() {
+  // Close all remote peer connections.
+  Object.keys(peerConnections).forEach((remoteUserId) => {
+    const pc = peerConnections[remoteUserId];
+
+    if (pc) {
+      // Prevent closing the connection from triggering old cleanup logic.
+      pc.onconnectionstatechange = null;
+      pc.close();
+    }
+
+    delete peerConnections[remoteUserId];
+  });
+
+  // Clear remote-user information.
+  Object.keys(remoteStreams).forEach((id) => delete remoteStreams[id]);
+  Object.keys(remoteNames).forEach((id) => delete remoteNames[id]);
+  Object.keys(roomPeople).forEach((id) => delete roomPeople[id]);
+  Object.keys(cameraWatchers).forEach((id) => delete cameraWatchers[id]);
+  Object.keys(cameraWatchRequests).forEach((id) => {
+    delete cameraWatchRequests[id];
+  });
+  Object.keys(microphoneListeners).forEach((id) => {
+    delete microphoneListeners[id];
+  });
+
+  // Remove remote audio elements.
+  document.querySelectorAll("audio[data-remote-audio]").forEach((audio) => {
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+  });
+
+  // Remove remote video tiles, preserving the local video tile.
+  if (videos) {
+    videos.querySelectorAll(".video-container").forEach((container) => {
+      if (container.id !== "local-video-container") {
+        container.remove();
+      }
+    });
+  }
+
+  // Clear old messages; the server will send the room history again.
+  if (messages) {
+    messages.innerHTML = "";
+  }
+
+  updatePeopleList();
+  updateWatchingList();
+}
 
 // =========================================
 // AUTHENTICATED UI
@@ -831,13 +929,13 @@ socket.on("registration-result", (result = {}) => {
 // =========================================
 // RESTORE SESSION
 // =========================================
-
+/* 
 const savedSessionToken = sessionStorage.getItem("sessionToken");
 
 if (savedSessionToken) {
   socket.emit("restore-session", { token: savedSessionToken });
 }
-
+ */
 // =========================================
 // SESSION RESTORE RESULT
 // =========================================
@@ -866,6 +964,8 @@ socket.on("session-result", (result) => {
   closeLogin();
   closeAccount();
   closeChangePassword();
+
+  showAppNotice("");
 
   updateRoomInfo();
   joinRoom();
@@ -1458,12 +1558,8 @@ socket.on("start-connection", ({ userId: remoteUserId, username }) => {
   if (remoteUserId === socket.id) {
     return;
   }
-
-  remoteNames[remoteUserId] = username;
-
   startConnection(remoteUserId, username);
 });
-
 // =========================================
 // PEER CONNECTION
 // =========================================
@@ -2295,7 +2391,6 @@ function showRemoteVideo(remoteUserId) {
 
   if (!pc) {
     console.log("Waiting for the initial WebRTC connection with:", userName);
-
     return;
   }
 
@@ -2496,7 +2591,7 @@ function sendMessage() {
 // CREATE CHAT MESSAGE
 // =========================================
 
-function createChatMessage(senderUsername, message, createdAt = null) {
+function createChatMessage(senderUsername, message, createdAt) {
   const messageElement = document.createElement("div");
 
   const isMine = senderUsername === username;

@@ -911,6 +911,41 @@
           padding: 15px;
         }
       }
+
+      /* Show/hide controls for every password field */
+      .password-field {
+        display: flex;
+        align-items: stretch;
+        gap: 6px;
+        width: 100%;
+        margin: 8px 0;
+      }
+
+      .password-field input[type="password"],
+      .password-field input[type="text"] {
+        flex: 1 1 auto;
+        width: 0;
+        min-width: 0;
+        margin: 0;
+      }
+
+      .password-toggle {
+        flex: 0 0 auto;
+        width: auto !important;
+        min-width: 64px;
+        margin: 0 !important;
+        padding: 8px 10px !important;
+        border: 1px solid #666 !important;
+        border-radius: 6px;
+        background: #444;
+        color: white;
+        font-size: 13px !important;
+        cursor: pointer;
+      }
+
+      .password-toggle:hover {
+        background: #555;
+      }
     </style>
   </head>
 
@@ -1007,15 +1042,25 @@
         Password
       </label>
 
-      <input
-        id="registerPasswordInput"
-        type="password"
-        placeholder="Create a password"
-        autocomplete="new-password"
-        minlength="12"
-        maxlength="128"
-        aria-describedby="registerPasswordHelp registerPasswordFeedback"
-      />
+      <div class="password-field">
+        <input
+          id="registerPasswordInput"
+          type="password"
+          placeholder="Create a password"
+          autocomplete="new-password"
+          minlength="12"
+          maxlength="128"
+          aria-describedby="registerPasswordHelp registerPasswordFeedback"
+        />
+        <button
+          class="password-toggle"
+          type="button"
+          data-password-target="registerPasswordInput"
+          aria-pressed="false"
+        >
+          Show
+        </button>
+      </div>
 
       <div id="registerPasswordHelp" class="account-help">
         12–128 characters. A longer passphrase is a good choice.
@@ -1046,14 +1091,27 @@
         autocomplete="username"
       />
 
-      <input
-        id="loginPasswordInput"
-        type="password"
-        placeholder="Password"
-        autocomplete="current-password"
-      />
+      <div class="password-field">
+        <input
+          id="loginPasswordInput"
+          type="password"
+          placeholder="Password"
+          autocomplete="current-password"
+        />
+        <button
+          class="password-toggle"
+          type="button"
+          data-password-target="loginPasswordInput"
+          aria-pressed="false"
+        >
+          Show
+        </button>
+      </div>
 
       <button id="loginButton">Login</button>
+      <p style="margin-top: 12px">
+        <a href="/forgot-password">Forgot Password?</a>
+      </p>
 
       <div id="loginMessage"></div>
     </div>
@@ -1070,26 +1128,56 @@
         characters.
       </p>
 
-      <input
-        id="currentPasswordInput"
-        type="password"
-        placeholder="Current password"
-        autocomplete="current-password"
-      />
+      <div class="password-field">
+        <input
+          id="currentPasswordInput"
+          type="password"
+          placeholder="Current password"
+          autocomplete="current-password"
+        />
+        <button
+          class="password-toggle"
+          type="button"
+          data-password-target="currentPasswordInput"
+          aria-pressed="false"
+        >
+          Show
+        </button>
+      </div>
 
-      <input
-        id="newPasswordInput"
-        type="password"
-        placeholder="New password (12–128 characters)"
-        autocomplete="new-password"
-      />
+      <div class="password-field">
+        <input
+          id="newPasswordInput"
+          type="password"
+          placeholder="New password (12–128 characters)"
+          autocomplete="new-password"
+        />
+        <button
+          class="password-toggle"
+          type="button"
+          data-password-target="newPasswordInput"
+          aria-pressed="false"
+        >
+          Show
+        </button>
+      </div>
 
-      <input
-        id="confirmNewPasswordInput"
-        type="password"
-        placeholder="Confirm new password"
-        autocomplete="new-password"
-      />
+      <div class="password-field">
+        <input
+          id="confirmNewPasswordInput"
+          type="password"
+          placeholder="Confirm new password"
+          autocomplete="new-password"
+        />
+        <button
+          class="password-toggle"
+          type="button"
+          data-password-target="confirmNewPasswordInput"
+          aria-pressed="false"
+        >
+          Show
+        </button>
+      </div>
 
       <button id="savePasswordButton">Change Password</button>
 
@@ -1209,5 +1297,26 @@
     <script src="/socket.io/socket.io.js"></script>
 
     <script src="/app.js"></script>
+    <script>
+      document
+        .querySelectorAll(".password-toggle[data-password-target]")
+        .forEach((button) => {
+          button.addEventListener("click", () => {
+            const input = document.getElementById(
+              button.dataset.passwordTarget,
+            );
+            if (!input) return;
+
+            const showPassword = input.type === "password";
+            input.type = showPassword ? "text" : "password";
+            button.textContent = showPassword ? "Hide" : "Show";
+            button.setAttribute("aria-pressed", String(showPassword));
+            button.setAttribute(
+              "aria-label",
+              `${showPassword ? "Hide" : "Show"} ${input.placeholder || "password"}`,
+            );
+          });
+        });
+    </script>
   </body>
 </html>

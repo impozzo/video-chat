@@ -11,7 +11,20 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+app.use(express.json({ limit: "20kb" }));
+app.use(express.urlencoded({ extended: false, limit: "20kb" }));
 app.use(express.static("public"));
+
+// Password-reset tokens are stored hashed and can only be used once.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
 
 // =========================================
 // APPROVED ROOMS
@@ -439,9 +452,184 @@ app.get("/verify-email", (req, res) => {
 });
 
 // =========================================
-// SOCKET.IO
+// FORGOT PASSWORD / RESET PASSWORD PAGES
 // =========================================
 
+app.get("/forgot-password", (req, res) => {
+  res.status(200).send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forgot Password</title><style>
+body{font-family:Arial,sans-serif;background:#171717;color:#f4f4f4;margin:0;padding:24px}
+main{max-width:460px;margin:60px auto;background:#242424;padding:28px;border-radius:12px}
+input,button{box-sizing:border-box;width:100%;padding:12px;margin:8px 0;border-radius:6px;font-size:16px}
+input{border:1px solid #666;background:#111;color:#fff}button{border:0;background:#2864d7;color:white;cursor:pointer}
+a{color:#9bbcff}#message{min-height:24px;line-height:1.4}
+</style></head><body><main><h1>Forgot Password</h1>
+<p>Enter the email address connected to your account. If an account matches, we'll email you a reset link.</p>
+<form id="form"><label for="email">Email address</label><input id="email" type="email" maxlength="254" autocomplete="email" required>
+<button id="submit" type="submit">Send Reset Link</button></form><p id="message" role="status" aria-live="polite"></p><p><a href="/">Return to login</a></p></main>
+<script>document.getElementById('form').addEventListener('submit',async e=>{e.preventDefault();const b=document.getElementById('submit'),m=document.getElementById('message');b.disabled=true;m.textContent='Sending...';try{const r=await fetch('/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value.trim()})});const d=await r.json();m.textContent=d.message||'If the account exists, a reset email will be sent.';}catch(e){m.textContent='Unable to send the request right now. Please try again.';}finally{b.disabled=false;}});</script>
+</body></html>`);
+});
+
+app.get("/reset-password", (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const safeToken = /^[a-f0-9]{64}$/i.test(token) ? token : "";
+  res.status(200).send(
+    `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset Password</title><style>
+body{font-family:Arial,sans-serif;background:#171717;color:#f4f4f4;margin:0;padding:24px}
+main{max-width:460px;margin:60px auto;background:#242424;padding:28px;border-radius:12px}
+input,button{box-sizing:border-box;width:100%;padding:12px;margin:8px 0;border-radius:6px;font-size:16px}
+input{border:1px solid #666;background:#111;color:#fff}button{border:0;background:#2864d7;color:white;cursor:pointer}
+.password-field{display:flex;align-items:stretch;gap:6px;width:100%;margin:8px 0}
+.password-field input{flex:1 1 auto;width:0;min-width:0;margin:0}
+.password-toggle{flex:0 0 auto;width:auto;padding:8px 12px;background:#444;border:1px solid #666;color:#fff;border-radius:6px;cursor:pointer}
+.password-toggle:hover{background:#555}
+a{color:#9bbcff}#message{min-height:24px;line-height:1.4}
+</style></head><body><main><h1>Choose a New Password</h1>
+<p>Your password must be between 12 and 128 characters.</p><form id="form"><label for="password">New password</label>
+<div class="password-field"><input id="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-target="password" aria-pressed="false">Show</button></div>
+<label for="confirm">Confirm new password</label><div class="password-field"><input id="confirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle" type="button" data-password-target="confirm" aria-pressed="false">Show</button></div>
+<button id="submit" type="submit">Reset Password</button></form><p id="message" role="status" aria-live="polite"></p><p><a href="/">Return to login</a></p></main>
+<script>document.querySelectorAll('.password-toggle[data-password-target]').forEach(button=>{button.addEventListener('click',()=>{const input=document.getElementById(button.dataset.passwordTarget);if(!input)return;const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Hide':'Show';button.setAttribute('aria-pressed',String(show));button.setAttribute('aria-label',(show?'Hide':'Show')+' password');});});const token=__TOKEN__;document.getElementById('form').addEventListener('submit',async e=>{e.preventDefault();const p=document.getElementById('password').value,c=document.getElementById('confirm').value,b=document.getElementById('submit'),m=document.getElementById('message');if(p!==c){m.textContent='The passwords do not match.';return;}if(p.length<12||p.length>128){m.textContent='Password must be between 12 and 128 characters.';return;}b.disabled=true;m.textContent='Resetting password...';try{const r=await fetch('/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:p})});const d=await r.json();m.textContent=d.message||'Unable to reset password.';if(d.success){document.getElementById('form').reset();}}catch(e){m.textContent='Unable to reset password right now. Please try again.';}finally{b.disabled=false;}});</script>
+</body></html>`.replace(
+      "const token=__TOKEN__;",
+      "const token=" + JSON.stringify(safeToken) + ";",
+    ),
+  );
+});
+
+// Always return the same public response so this endpoint doesn't reveal
+// whether an email address has an account.
+app.post("/api/forgot-password", async (req, res) => {
+  const genericMessage =
+    "If an account uses that email address, a password-reset link will be sent shortly.";
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
+
+  if (
+    !email ||
+    email.length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)
+  ) {
+    return res.status(200).json({ success: true, message: genericMessage });
+  }
+
+  try {
+    const user = db
+      .prepare(
+        `SELECT id, username, email FROM users WHERE lower(email) = ? AND email_verified_at IS NOT NULL`,
+      )
+      .get(email);
+    if (!user)
+      return res.status(200).json({ success: true, message: genericMessage });
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = hashOneTimeToken(token);
+    db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
+      user.id,
+    );
+    db.prepare(
+      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))`,
+    ).run(user.id, tokenHash);
+    const resetUrl = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: "Reset your Video Chat Room password",
+        text: `Hello ${user.username},\n\nUse this link to reset your Video Chat Room password:\n\n${resetUrl}\n\nThis link expires in one hour and can only be used once. If you did not request a password reset, you can ignore this email.`,
+        html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.5"><div style="max-width:600px;margin:0 auto;padding:24px"><h1>Reset your password</h1><p>Hello, ${escapeHtml(user.username)}.</p><p>Use the button below to choose a new password for your Video Chat Room account.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#2864d7;color:#fff;text-decoration:none;border-radius:6px">Reset Password</a></p><p>This link expires in one hour and can only be used once.</p><p>If you did not request this, you can ignore this email.</p></div></body></html>`,
+      });
+    } catch (emailError) {
+      console.error(
+        "Password-reset email could not be sent:",
+        emailError.message,
+      );
+      db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
+        user.id,
+      );
+    }
+  } catch (error) {
+    console.error("Forgot-password request failed:", error.message);
+  }
+
+  return res.status(200).json({ success: true, message: genericMessage });
+});
+
+app.post("/api/reset-password", (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : "";
+
+  if (!/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({
+      success: false,
+      message: "This reset link is invalid or has expired. Request a new one.",
+    });
+  }
+  if (
+    password.length < MIN_PASSWORD_LENGTH ||
+    password.length > MAX_PASSWORD_LENGTH
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: `Password must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters long.`,
+    });
+  }
+
+  const record = db
+    .prepare(
+      `SELECT users.id FROM password_reset_tokens JOIN users ON users.id = password_reset_tokens.user_id WHERE password_reset_tokens.token_hash = ? AND password_reset_tokens.expires_at > datetime('now') AND users.email_verified_at IS NOT NULL`,
+    )
+    .get(hashOneTimeToken(token));
+  if (!record) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "This reset link is invalid, expired, or already used. Request a new one.",
+    });
+  }
+
+  try {
+    const resetTransaction = db.transaction(() => {
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+        hashPassword(password),
+        record.id,
+      );
+      db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
+        record.id,
+      );
+      db.prepare("DELETE FROM sessions WHERE user_id = ?").run(record.id);
+    });
+    resetTransaction();
+    replaceOtherActiveSockets(
+      record.id,
+      null,
+      null,
+      "Your password was reset. Please log in again.",
+    );
+    return res.status(200).json({
+      success: true,
+      message:
+        "Your password has been reset. Please return to the website and log in with your new password.",
+    });
+  } catch (error) {
+    console.error("Password reset failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to reset the password right now. Please try again.",
+    });
+  }
+});
+
+// =========================================
+// SOCKET.IO
+// =========================================
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
@@ -700,8 +888,6 @@ io.on("connection", (socket) => {
 
     clearFailedLogins(attemptKey);
 
-    // Require email verification for new accounts that have an email address.
-    // Existing accounts with no email address can still log in.
     if (user.email && !user.email_verified_at) {
       socket.emit("login-result", {
         success: false,
@@ -713,7 +899,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Keep only one saved login session for this account.
     db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
 
     replaceOtherActiveSockets(user.id, socket.id);
@@ -846,10 +1031,8 @@ io.on("connection", (socket) => {
         user.id,
       );
 
-      // Invalidate every existing saved session for this account.
       db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
 
-      // End any other active browser using this account.
       replaceOtherActiveSockets(
         user.id,
         socket.id,
@@ -857,7 +1040,6 @@ io.on("connection", (socket) => {
         "Your account password was changed. Please log in again.",
       );
 
-      // Remove this connection from its room as well.
       const roomUser = users[socket.id];
 
       if (roomUser) {
