@@ -321,6 +321,8 @@ function setAuthenticatedUI(isAuthenticated) {
     topBarCenter,
     roomSelection,
     peopleBox,
+    document.getElementById("remoteGallerySection"),
+    document.getElementById("myCameraSection"),
     videos,
     controls,
     chat,
@@ -956,6 +958,7 @@ socket.on("session-result", (result) => {
 
   loggedIn = true;
   username = result.username;
+  document.title = `${username} - Video Chat Room`;
   userId = result.userId;
 
   showLoggedInButtons();
@@ -1041,6 +1044,7 @@ socket.on("login-result", (result) => {
 
   loggedIn = true;
   username = result.username;
+  document.title = `${username} - Video Chat Room`;
   userId = result.userId;
 
   if (result.sessionToken) {
@@ -1120,6 +1124,8 @@ function logout() {
   loggedIn = false;
   username = "";
   userId = null;
+
+  document.title = "Video Chat Room";
 
   showLoggedOutButtons();
   setAuthenticatedUI(false);
@@ -2235,50 +2241,61 @@ async function renegotiate(remoteUserId, pc) {
 // =========================================
 
 function showLocalVideo() {
-  if (!videos) {
+  const container = document.getElementById("myCameraBox");
+
+  if (!container) {
+    console.error("My camera box was not found in the HTML.");
     return;
   }
 
-  let container = document.getElementById("local-video-container");
+  let video = document.getElementById("local-video");
 
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "local-video-container";
-    container.className = "video-container";
-
-    const video = document.createElement("video");
-
+  if (!video) {
+    video = document.createElement("video");
     video.id = "local-video";
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
 
-    const label = document.createElement("div");
+    container.appendChild(video);
 
+    const label = document.createElement("div");
+    label.id = "local-video-label";
     label.className = "video-label";
     label.textContent = `${username} (You)`;
 
-    container.appendChild(video);
     container.appendChild(label);
-    videos.appendChild(container);
   }
 
-  const video = document.getElementById("local-video");
+  const placeholder = document.getElementById("myCameraPlaceholder");
 
-  if (video) {
-    video.srcObject = localStream;
-
-    video.play().catch((error) => {
-      console.error("Local video playback error:", error);
-    });
+  if (placeholder) {
+    placeholder.style.display = "none";
   }
+
+  video.srcObject = localStream;
+
+  video.play().catch((error) => {
+    console.error("Local video playback error:", error);
+  });
 }
 
 function hideLocalVideo() {
-  const container = document.getElementById("local-video-container");
+  const video = document.getElementById("local-video");
+  const label = document.getElementById("local-video-label");
+  const placeholder = document.getElementById("myCameraPlaceholder");
 
-  if (container) {
-    container.remove();
+  if (video) {
+    video.srcObject = null;
+    video.remove();
+  }
+
+  if (label) {
+    label.remove();
+  }
+
+  if (placeholder) {
+    placeholder.style.display = "flex";
   }
 }
 
@@ -2376,6 +2393,31 @@ function ensureRemoteVideo(remoteUserId, userName, stream) {
 function showRemoteVideo(remoteUserId) {
   console.log("Camera button clicked for:", remoteUserId);
 
+  // Limit the gallery to 8 remote cameras.
+  const gallery = document.getElementById("videos");
+  const currentContainer = document.getElementById(
+    `video-container-${remoteUserId}`,
+  );
+
+  const visibleCameraCount = gallery
+    ? Array.from(gallery.querySelectorAll(".video-container")).filter(
+        (tile) =>
+          tile.id.startsWith("video-container-") &&
+          tile.style.display !== "none",
+      ).length
+    : 0;
+
+  // Don't open a ninth camera, but allow an already-open camera.
+  if (
+    (!currentContainer || currentContainer.style.display === "none") &&
+    visibleCameraCount >= 8
+  ) {
+    alert(
+      "You can view up to 8 other cameras at a time. Close a camera before opening another.",
+    );
+    return;
+  }
+
   cameraWatchRequests[remoteUserId] = true;
 
   const person = roomPeople[remoteUserId];
@@ -2419,7 +2461,17 @@ function showRemoteVideo(remoteUserId) {
 
   video.srcObject = stream;
   video.muted = true;
+
   container.style.display = "block";
+
+  if (gallery) {
+    const visibleCameras = Array.from(
+      gallery.querySelectorAll(".video-container"),
+    ).filter((tile) => tile.style.display !== "none").length;
+
+    // Use smaller tiles when more than 4 cameras are open.
+    gallery.classList.toggle("gallery-eight", visibleCameras > 4);
+  }
 
   video.play().catch((error) => {
     console.error("Could not play the remote camera:", error);
@@ -2436,6 +2488,18 @@ function hideRemoteVideo(remoteUserId) {
 
   if (container) {
     container.remove();
+
+    // Recalculate the gallery layout after closing a camera.
+    const gallery = document.getElementById("videos");
+
+    if (gallery) {
+      const visibleCameras = Array.from(
+        gallery.querySelectorAll(".video-container"),
+      ).filter((tile) => tile.style.display !== "none").length;
+
+      // Return to larger tiles when 4 or fewer cameras remain.
+      gallery.classList.toggle("gallery-eight", visibleCameras > 4);
+    }
   }
 
   delete cameraWatchRequests[remoteUserId];
