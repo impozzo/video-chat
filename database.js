@@ -51,6 +51,8 @@ const hasEmailVerifiedColumn = userColumns.some(
   (column) => column.name === "email_verified_at",
 );
 
+const hasGenderColumn = userColumns.some((column) => column.name === "gender");
+
 if (!hasEmailColumn) {
   db.exec(`
         ALTER TABLE users
@@ -67,6 +69,17 @@ if (!hasEmailVerifiedColumn) {
     `);
 
   console.log("Added email verification status to users table.");
+}
+
+if (!hasGenderColumn) {
+  db.exec(`
+        ALTER TABLE users
+        ADD COLUMN gender TEXT NOT NULL DEFAULT 'Male';
+    `);
+
+  console.log(
+    "Added gender column to users table. Existing users default to Male.",
+  );
 }
 
 // =========================================

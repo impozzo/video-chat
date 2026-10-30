@@ -530,19 +530,30 @@ app.post("/api/forgot-password", async (req, res) => {
 
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashOneTimeToken(token);
+
     db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
       user.id,
     );
+
     db.prepare(
-      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))`,
+      `INSERT INTO password_reset_tokens
+       (user_id, token_hash, expires_at)
+       VALUES (?, ?, datetime('now', '+1 hour'))`,
     ).run(user.id, tokenHash);
+
     const resetUrl = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
 
     try {
       await sendEmail({
         to: user.email,
         subject: "Reset your Video Chat Room password",
-        text: `Hello ${user.username},\n\nUse this link to reset your Video Chat Room password:\n\n${resetUrl}\n\nThis link expires in one hour and can only be used once. If you did not request a password reset, you can ignore this email.`,
+        text: `Hello ${user.username},
+
+Use this link to reset your Video Chat Room password:
+
+${resetUrl}
+
+This link expires in one hour and can only be used once. If you did not request a password reset, you can ignore this email.`,
         html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.5"><div style="max-width:600px;margin:0 auto;padding:24px"><h1>Reset your password</h1><p>Hello, ${escapeHtml(user.username)}.</p><p>Use the button below to choose a new password for your Video Chat Room account.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#2864d7;color:#fff;text-decoration:none;border-radius:6px">Reset Password</a></p><p>This link expires in one hour and can only be used once.</p><p>If you did not request this, you can ignore this email.</p></div></body></html>`,
       });
     } catch (emailError) {
@@ -550,6 +561,7 @@ app.post("/api/forgot-password", async (req, res) => {
         "Password-reset email could not be sent:",
         emailError.message,
       );
+
       db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
         user.id,
       );
@@ -558,11 +570,15 @@ app.post("/api/forgot-password", async (req, res) => {
     console.error("Forgot-password request failed:", error.message);
   }
 
-  return res.status(200).json({ success: true, message: genericMessage });
+  return res.status(200).json({
+    success: true,
+    message: genericMessage,
+  });
 });
 
 app.post("/api/reset-password", (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : "";
+
   const password =
     typeof req.body?.password === "string" ? req.body.password : "";
 
@@ -572,6 +588,7 @@ app.post("/api/reset-password", (req, res) => {
       message: "This reset link is invalid or has expired. Request a new one.",
     });
   }
+
   if (
     password.length < MIN_PASSWORD_LENGTH ||
     password.length > MAX_PASSWORD_LENGTH
@@ -584,9 +601,16 @@ app.post("/api/reset-password", (req, res) => {
 
   const record = db
     .prepare(
-      `SELECT users.id FROM password_reset_tokens JOIN users ON users.id = password_reset_tokens.user_id WHERE password_reset_tokens.token_hash = ? AND password_reset_tokens.expires_at > datetime('now') AND users.email_verified_at IS NOT NULL`,
+      `SELECT users.id
+       FROM password_reset_tokens
+       JOIN users
+         ON users.id = password_reset_tokens.user_id
+       WHERE password_reset_tokens.token_hash = ?
+         AND password_reset_tokens.expires_at > datetime('now')
+         AND users.email_verified_at IS NOT NULL`,
     )
     .get(hashOneTimeToken(token));
+
   if (!record) {
     return res.status(400).json({
       success: false,
@@ -601,18 +625,23 @@ app.post("/api/reset-password", (req, res) => {
         hashPassword(password),
         record.id,
       );
+
       db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
         record.id,
       );
+
       db.prepare("DELETE FROM sessions WHERE user_id = ?").run(record.id);
     });
+
     resetTransaction();
+
     replaceOtherActiveSockets(
       record.id,
       null,
       null,
       "Your password was reset. Please log in again.",
     );
+
     return res.status(200).json({
       success: true,
       message:
@@ -620,6 +649,7 @@ app.post("/api/reset-password", (req, res) => {
     });
   } catch (error) {
     console.error("Password reset failed:", error.message);
+
     return res.status(500).json({
       success: false,
       message: "Unable to reset the password right now. Please try again.",
@@ -630,6 +660,7 @@ app.post("/api/reset-password", (req, res) => {
 // =========================================
 // SOCKET.IO
 // =========================================
+
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
@@ -753,7 +784,7 @@ io.on("connection", (socket) => {
 
         text:
           `Hello ${username},\n\n` +
-          "Please verify your email address for your Video Chat Room account by opening this link:\n\n" +
+          "Please verify the email address for your Video Chat Room account by opening this link:\n\n" +
           `${verificationUrl}\n\n` +
           "This link expires in 24 hours and can only be used once.\n\n" +
           "If you did not create this account, you can ignore this email.",
@@ -1048,17 +1079,8 @@ io.on("connection", (socket) => {
           username: roomUser.username,
         });
 
-        for (const [otherId, otherUser] of Object.entries(users)) {
-          if (otherId !== socket.id && otherUser.roomId === roomUser.roomId) {
-            io.to(otherId).emit("camera-watcher", {
-              id: socket.id,
-              username: roomUser.username,
-              watching: false,
-            });
-          }
-        }
-
         socket.leave(roomUser.roomId);
+
         delete users[socket.id];
 
         broadcastRoomCounts();
@@ -1068,14 +1090,13 @@ io.on("connection", (socket) => {
       socket.authenticatedUserId = null;
       socket.authenticatedUsername = null;
 
-      console.log(`Password changed for user: ${user.username}`);
-
       socket.emit("password-change-result", {
         success: true,
-        message: "Password changed. Please log in with your new password.",
+        message:
+          "Password changed successfully. Please log in again using your new password.",
       });
     } catch (error) {
-      console.error("Password change error:", error);
+      console.error("Password change failed:", error.message);
 
       socket.emit("password-change-result", {
         success: false,
@@ -1089,318 +1110,146 @@ io.on("connection", (socket) => {
   // =========================================
 
   socket.on("logout-user", () => {
+    const roomUser = users[socket.id];
+
     if (socket.sessionToken) {
       deleteSession(socket.sessionToken);
     }
 
-    const user = users[socket.id];
-
-    if (user) {
-      console.log(`${user.username} logged out from room ${user.roomId}`);
-
-      socket.to(user.roomId).emit("user-left", {
+    if (roomUser) {
+      socket.to(roomUser.roomId).emit("user-left", {
         id: socket.id,
-        username: user.username,
+        username: roomUser.username,
       });
+
+      socket.leave(roomUser.roomId);
 
       delete users[socket.id];
 
-      socket.leave(user.roomId);
-
       broadcastRoomCounts();
-    } else {
-      console.log(`${socket.authenticatedUsername || "User"} logged out`);
     }
 
     socket.sessionToken = null;
     socket.authenticatedUserId = null;
     socket.authenticatedUsername = null;
+
+    socket.emit("logout-result", {
+      success: true,
+    });
+
+    console.log("User logged out:", socket.id);
   });
 
   // =========================================
   // JOIN ROOM
   // =========================================
 
-  socket.on("join-room", ({ roomId } = {}) => {
+  socket.on("join-room", (payload = {}) => {
     if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
-      socket.emit("join-error", {
-        message: "You must be logged in.",
+      socket.emit("join-room-error", {
+        message: "Please log in before joining a room.",
       });
 
       return;
     }
 
-    if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
-      socket.emit("join-error", {
-        message:
-          "That room does not exist. Please choose a room from the room list.",
+    const requestedRoom =
+      typeof payload.roomId === "string" ? payload.roomId.trim() : "";
+
+    if (!ALLOWED_ROOMS.has(requestedRoom)) {
+      socket.emit("join-room-error", {
+        message: "That room does not exist.",
       });
 
       return;
     }
 
     const username = socket.authenticatedUsername;
-    const oldUser = users[socket.id];
+    const previousRoom = users[socket.id]?.roomId;
 
-    if (oldUser && oldUser.roomId && oldUser.roomId !== roomId) {
-      console.log(
-        `${oldUser.username} left room ${oldUser.roomId} to join ${roomId}`,
-      );
-
-      socket.to(oldUser.roomId).emit("user-left", {
-        id: socket.id,
-        username: oldUser.username,
+    if (previousRoom === requestedRoom) {
+      socket.emit("joined-room", {
+        roomId: requestedRoom,
+        username,
       });
 
-      socket.leave(oldUser.roomId);
-
-      for (const [otherId, otherUser] of Object.entries(users)) {
-        if (otherId !== socket.id && otherUser.roomId === oldUser.roomId) {
-          io.to(otherId).emit("camera-watcher", {
-            id: socket.id,
-            username: oldUser.username,
-            watching: false,
-          });
-        }
-      }
-
-      delete users[socket.id];
-
-      broadcastRoomCounts();
+      return;
     }
 
-    const existingUsers = Object.entries(users)
-      .filter(([id, user]) => user.roomId === roomId)
-      .map(([id, user]) => ({
-        id,
-        username: user.username,
-        camera: Boolean(user.camera),
-        microphone: Boolean(user.microphone),
-      }));
+    if (previousRoom) {
+      socket.to(previousRoom).emit("user-left", {
+        id: socket.id,
+        username,
+      });
+
+      socket.leave(previousRoom);
+    }
 
     users[socket.id] = {
-      roomId,
-      username,
+      id: socket.id,
       userId: socket.authenticatedUserId,
-      camera: false,
-      microphone: false,
+      username,
+      roomId: requestedRoom,
+      cameraOn: false,
+      micOn: false,
     };
 
-    socket.join(roomId);
+    socket.join(requestedRoom);
 
-    console.log(`${username} joined room ${roomId}`);
+    const existingUsers = Object.values(users)
+      .filter((user) => user.roomId === requestedRoom && user.id !== socket.id)
+      .map((user) => ({
+        id: user.id,
+        username: user.username,
+        cameraOn: user.cameraOn,
+        micOn: user.micOn,
+      }));
 
     socket.emit("room-users", existingUsers);
 
-    socket.to(roomId).emit("user-joined", {
+    socket.to(requestedRoom).emit("user-joined", {
       id: socket.id,
       username,
-      camera: false,
-      microphone: false,
+      cameraOn: false,
+      micOn: false,
+    });
+
+    socket.emit("joined-room", {
+      roomId: requestedRoom,
+      username,
     });
 
     broadcastRoomCounts();
-  });
 
-  // =========================================
-  // CHAT HISTORY
-  // =========================================
-
-  socket.on("get-chat-history", ({ roomId } = {}) => {
-    if (!socket.authenticatedUserId) {
-      return;
-    }
-
-    const user = users[socket.id];
-
-    if (!user) {
-      return;
-    }
-
-    if (typeof roomId !== "string" || roomId !== user.roomId) {
-      console.log("Chat history request rejected: wrong room.");
-      return;
-    }
-
-    if (!socket.rooms.has(roomId) || !ALLOWED_ROOMS.has(roomId)) {
-      console.log("Chat history request rejected: invalid membership.");
-      return;
-    }
-
-    const history = db
-      .prepare(
-        `
-          SELECT
-            messages.id,
-            messages.message,
-            messages.created_at,
-            users.username
-          FROM messages
-          JOIN users
-            ON messages.user_id = users.id
-          WHERE messages.room_id = ?
-          ORDER BY messages.id ASC
-        `,
-      )
-      .all(roomId);
-
-    socket.emit("chat-history", history);
-  });
-
-  // =========================================
-  // MEDIA STATE
-  // =========================================
-
-  socket.on("media-state", ({ camera, microphone } = {}) => {
-    const user = users[socket.id];
-
-    if (!user) {
-      return;
-    }
-
-    user.camera = Boolean(camera);
-    user.microphone = Boolean(microphone);
-
-    socket.to(user.roomId).emit("media-state", {
-      id: socket.id,
-      username: user.username,
-      camera: user.camera,
-      microphone: user.microphone,
-    });
-
-    if (!user.camera) {
-      socket.to(user.roomId).emit("remote-camera-off", {
-        id: socket.id,
-        username: user.username,
-      });
-    }
-  });
-
-  // =========================================
-  // CAMERA WATCHING
-  // =========================================
-
-  socket.on("camera-watching", ({ target, watching } = {}) => {
-    const watcher = users[socket.id];
-    const targetUser = users[target];
-
-    if (!watcher || !targetUser) {
-      console.log("Camera watching rejected:", {
-        watcher: socket.id,
-        target,
-      });
-
-      return;
-    }
-
-    if (watcher.roomId !== targetUser.roomId) {
-      console.log("Camera watching rejected: different rooms.");
-      return;
-    }
-
-    console.log(
-      `${watcher.username} ${
-        watching ? "STARTED watching" : "STOPPED watching"
-      } ${targetUser.username}'s camera`,
-    );
-
-    io.to(target).emit("camera-watch-status", {
-      watcherId: socket.id,
-      watcherUsername: watcher.username,
-      watching: Boolean(watching),
-    });
-  });
-
-  // =========================================
-  // LEAVE ROOM
-  // =========================================
-
-  socket.on("leave-room", () => {
-    const user = users[socket.id];
-
-    if (!user) {
-      return;
-    }
-
-    console.log(`${user.username} left room ${user.roomId}`);
-
-    socket.to(user.roomId).emit("user-left", {
-      id: socket.id,
-      username: user.username,
-    });
-
-    for (const [otherId, otherUser] of Object.entries(users)) {
-      if (otherId !== socket.id && otherUser.roomId === user.roomId) {
-        io.to(otherId).emit("camera-watcher", {
-          id: socket.id,
-          username: user.username,
-          watching: false,
-        });
-      }
-    }
-
-    socket.leave(user.roomId);
-
-    delete users[socket.id];
-
-    broadcastRoomCounts();
+    console.log(`${username} joined room: ${requestedRoom}`);
   });
 
   // =========================================
   // CHAT MESSAGE
   // =========================================
 
-  socket.on("chat-message", (payload) => {
-    if (!payload || typeof payload !== "object") {
+  socket.on("chat-message", (payload = {}) => {
+    const roomUser = users[socket.id];
+
+    if (!roomUser) {
       return;
     }
 
-    const { roomId, message } = payload;
+    const message =
+      typeof payload.message === "string" ? payload.message.trim() : "";
 
-    if (!socket.authenticatedUserId || !socket.authenticatedUsername) {
-      console.log("Chat message rejected: user not logged in.");
+    if (!message || message.length > 2000) {
       return;
     }
 
-    const user = users[socket.id];
+    const chatMessage = {
+      id: crypto.randomUUID(),
+      username: roomUser.username,
+      message,
+      timestamp: new Date().toISOString(),
+    };
 
-    if (!user || user.userId !== socket.authenticatedUserId) {
-      console.log("Chat message rejected: invalid account or room membership.");
-      return;
-    }
-
-    if (typeof roomId !== "string" || !ALLOWED_ROOMS.has(roomId)) {
-      console.log("Chat message rejected: invalid room.");
-      return;
-    }
-
-    if (roomId !== user.roomId || !socket.rooms.has(roomId)) {
-      console.log("Chat message rejected: wrong room.");
-      return;
-    }
-
-    if (typeof message !== "string") {
-      return;
-    }
-
-    const cleanMessage = message.trim();
-
-    if (!cleanMessage || cleanMessage.length > 2000) {
-      return;
-    }
-
-    db.prepare(
-      `
-        INSERT INTO messages
-          (room_id, user_id, message)
-        VALUES (?, ?, ?)
-      `,
-    ).run(user.roomId, socket.authenticatedUserId, cleanMessage);
-
-    io.to(user.roomId).emit("chat-message", {
-      username: user.username,
-      message: cleanMessage,
-    });
+    io.to(roomUser.roomId).emit("chat-message", chatMessage);
   });
 
   // =========================================
