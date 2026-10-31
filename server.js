@@ -1229,9 +1229,12 @@ io.on("connection", (socket) => {
   // =========================================
 
   socket.on("chat-message", (payload = {}) => {
+    console.log("CHAT MESSAGE RECEIVED:", payload);
+
     const roomUser = users[socket.id];
 
-    if (!roomUser) {
+    if (!roomUser || !socket.authenticatedUserId) {
+      console.log("Chat message rejected: user not logged in or not in room.");
       return;
     }
 
@@ -1242,14 +1245,73 @@ io.on("connection", (socket) => {
       return;
     }
 
+    try {
+      db.prepare(
+        `
+          INSERT INTO messages
+            (room_id, user_id, message)
+          VALUES (?, ?, ?)
+        `,
+      ).run(roomUser.roomId, socket.authenticatedUserId, message);
+
+      console.log("CHAT MESSAGE SAVED TO DATABASE");
+    } catch (error) {
+      console.error("CHAT DATABASE ERROR:", error);
+      return;
+    }
+
     const chatMessage = {
-      id: crypto.randomUUID(),
       username: roomUser.username,
       message,
       timestamp: new Date().toISOString(),
     };
 
     io.to(roomUser.roomId).emit("chat-message", chatMessage);
+  });
+
+  // =========================================
+  // LOAD CHAT HISTORY
+  // =========================================
+
+  socket.on("get-chat-history", ({ roomId } = {}) => {
+    const roomUser = users[socket.id];
+
+    if (
+      !roomUser ||
+      !socket.authenticatedUserId ||
+      roomUser.userId !== socket.authenticatedUserId ||
+      roomUser.roomId !== roomId ||
+      !socket.rooms.has(roomId) ||
+      !ALLOWED_ROOMS.has(roomId)
+    ) {
+      console.log("Chat history request rejected.");
+      return;
+    }
+
+    try {
+      const history = db
+        .prepare(
+          `
+            SELECT
+              messages.id,
+              messages.message,
+              messages.created_at,
+              users.username
+            FROM messages
+            JOIN users
+              ON messages.user_id = users.id
+            WHERE messages.room_id = ?
+            ORDER BY messages.id ASC
+          `,
+        )
+        .all(roomId);
+
+      console.log(`Loaded ${history.length} chat messages for room: ${roomId}`);
+
+      socket.emit("chat-history", history);
+    } catch (error) {
+      console.error("CHAT HISTORY DATABASE ERROR:", error);
+    }
   });
 
   // =========================================

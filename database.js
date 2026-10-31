@@ -2,6 +2,8 @@ const Database = require("better-sqlite3");
 
 const db = new Database("video-chat.db");
 
+console.log("DATABASE LOCATION:", require("path").resolve("video-chat.db"));
+
 // =========================================
 // DATABASE CONFIGURATION
 // =========================================
