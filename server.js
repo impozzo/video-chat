@@ -501,73 +501,65 @@ a{color:#9bbcff}#message{min-height:24px;line-height:1.4}
   );
 });
 
-// Always return the same public response so this endpoint doesn't reveal
-// whether an email address has an account.
+// Always return the same response so this endpoint does not reveal
+// whether an email address belongs to an account.
 app.post("/api/forgot-password", async (req, res) => {
   const genericMessage =
     "If an account uses that email address, a password-reset link will be sent shortly.";
+
   const email =
     typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : "";
 
-  if (
-    !email ||
-    email.length > 254 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)
-  ) {
-    return res.status(200).json({ success: true, message: genericMessage });
-  }
-
-  try {
-    const user = db
-      .prepare(
-        `SELECT id, username, email FROM users WHERE lower(email) = ? AND email_verified_at IS NOT NULL`,
-      )
-      .get(email);
-    if (!user)
-      return res.status(200).json({ success: true, message: genericMessage });
-
-    const token = crypto.randomBytes(32).toString("hex");
-    const tokenHash = hashOneTimeToken(token);
-
-    db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
-      user.id,
-    );
-
-    db.prepare(
-      `INSERT INTO password_reset_tokens
-       (user_id, token_hash, expires_at)
-       VALUES (?, ?, datetime('now', '+1 hour'))`,
-    ).run(user.id, tokenHash);
-
-    const resetUrl = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
-
+  if (!validateEmailAddress(email)) {
     try {
-      await sendEmail({
-        to: user.email,
-        subject: "Reset your Video Chat Room password",
-        text: `Hello ${user.username},
+      const user = db
+        .prepare(
+          `SELECT id, username, email
+           FROM users
+           WHERE email = ?
+             AND email_verified_at IS NOT NULL`,
+        )
+        .get(email);
 
-Use this link to reset your Video Chat Room password:
+      if (user) {
+        const token = crypto.randomBytes(32).toString("hex");
+        const tokenHash = hashOneTimeToken(token);
 
-${resetUrl}
+        db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
+          user.id,
+        );
 
-This link expires in one hour and can only be used once. If you did not request a password reset, you can ignore this email.`,
-        html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.5"><div style="max-width:600px;margin:0 auto;padding:24px"><h1>Reset your password</h1><p>Hello, ${escapeHtml(user.username)}.</p><p>Use the button below to choose a new password for your Video Chat Room account.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#2864d7;color:#fff;text-decoration:none;border-radius:6px">Reset Password</a></p><p>This link expires in one hour and can only be used once.</p><p>If you did not request this, you can ignore this email.</p></div></body></html>`,
-      });
-    } catch (emailError) {
-      console.error(
-        "Password-reset email could not be sent:",
-        emailError.message,
-      );
+        db.prepare(
+          `INSERT INTO password_reset_tokens
+             (user_id, token_hash, expires_at)
+           VALUES (?, ?, datetime('now', '+1 hour'))`,
+        ).run(user.id, tokenHash);
 
-      db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
-        user.id,
-      );
+        const resetUrl = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+        try {
+          await sendEmail({
+            to: user.email,
+            subject: "Reset your Video Chat Room password",
+            text: `Hello ${user.username},\n\nUse this link to reset your Video Chat Room password:\n\n${resetUrl}\n\nThis link expires in one hour and can only be used once. If you did not request a password reset, you can ignore this email.`,
+            html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.5"><div style="max-width:600px;margin:0 auto;padding:24px"><h1>Reset your password</h1><p>Hello, ${escapeHtml(user.username)}.</p><p>Use the button below to choose a new password for your Video Chat Room account.</p><p style="margin:28px 0"><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#2864d7;color:#fff;text-decoration:none;border-radius:6px">Reset Password</a></p><p>This link expires in one hour and can only be used once.</p><p>If you did not request this, you can ignore this email.</p></div></body></html>`,
+          });
+        } catch (emailError) {
+          console.error(
+            "Password-reset email could not be sent:",
+            emailError.message,
+          );
+
+          db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(
+            user.id,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Forgot-password request failed:", error.message);
     }
-  } catch (error) {
-    console.error("Forgot-password request failed:", error.message);
   }
 
   return res.status(200).json({
@@ -1165,6 +1157,13 @@ io.on("connection", (socket) => {
     }
 
     const username = socket.authenticatedUsername;
+
+    const account = db
+      .prepare("SELECT gender FROM users WHERE id = ?")
+      .get(socket.authenticatedUserId);
+
+    const gender = account?.gender === "Female" ? "Female" : "Male";
+
     const previousRoom = users[socket.id]?.roomId;
 
     if (previousRoom === requestedRoom) {
@@ -1189,6 +1188,7 @@ io.on("connection", (socket) => {
       id: socket.id,
       userId: socket.authenticatedUserId,
       username,
+      gender,
       roomId: requestedRoom,
       cameraOn: false,
       micOn: false,
@@ -1201,6 +1201,7 @@ io.on("connection", (socket) => {
       .map((user) => ({
         id: user.id,
         username: user.username,
+        gender: user.gender,
         cameraOn: user.cameraOn,
         micOn: user.micOn,
       }));
@@ -1210,6 +1211,7 @@ io.on("connection", (socket) => {
     socket.to(requestedRoom).emit("user-joined", {
       id: socket.id,
       username,
+      gender,
       cameraOn: false,
       micOn: false,
     });
@@ -1316,8 +1318,6 @@ io.on("connection", (socket) => {
 
   // =========================================
   // WEBRTC SIGNALING SECURITY
-  // Both users must be authenticated and
-  // present in the same approved room.
   // =========================================
 
   function getAuthorizedSignalingPair(target) {
