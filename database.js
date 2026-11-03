@@ -2,8 +2,6 @@ const Database = require("better-sqlite3");
 
 const db = new Database("video-chat.db");
 
-console.log("DATABASE LOCATION:", require("path").resolve("video-chat.db"));
-
 // =========================================
 // DATABASE CONFIGURATION
 // =========================================
@@ -76,12 +74,11 @@ if (!hasEmailVerifiedColumn) {
 if (!hasGenderColumn) {
   db.exec(`
         ALTER TABLE users
-        ADD COLUMN gender TEXT NOT NULL DEFAULT 'Male';
+        ADD COLUMN gender TEXT NOT NULL DEFAULT 'Male'
+        CHECK (gender IN ('Male', 'Female'));
     `);
 
-  console.log(
-    "Added gender column to users table. Existing users default to Male.",
-  );
+  console.log("Added gender column to users table.");
 }
 
 // =========================================

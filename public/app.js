@@ -25,6 +25,7 @@ const accountArea = document.getElementById("accountArea");
 
 const registerUsernameInput = document.getElementById("registerUsernameInput");
 const registerEmailInput = document.getElementById("registerEmailInput");
+const registerGenderInput = document.getElementById("registerGenderInput");
 const registerPasswordInput = document.getElementById("registerPasswordInput");
 
 const registerButton = document.getElementById("registerButton");
@@ -196,6 +197,10 @@ const watchingTitle = document.getElementById("watchingTitle");
 // VIDEO
 // =========================================
 
+const remoteGallerySection = document.getElementById("remoteGallerySection");
+
+const myCameraSection = document.getElementById("myCameraSection");
+
 const videos = document.getElementById("videos");
 
 const controls = document.getElementById("controls");
@@ -321,9 +326,8 @@ function setAuthenticatedUI(isAuthenticated) {
     topBarCenter,
     roomSelection,
     peopleBox,
-    document.getElementById("remoteGallerySection"),
-    document.getElementById("myCameraSection"),
-    videos,
+    remoteGallerySection,
+    myCameraSection,
     controls,
     chat,
   ];
@@ -797,6 +801,7 @@ function registerAccount() {
 
   const newUsername = registerUsernameInput.value.trim();
   const email = registerEmailInput.value.trim().toLowerCase();
+  const gender = registerGenderInput ? registerGenderInput.value : "Male";
   const password = registerPasswordInput.value;
 
   registerButton.disabled = true;
@@ -809,6 +814,7 @@ function registerAccount() {
   socket.emit("register-user", {
     username: newUsername,
     email,
+    gender,
     password,
   });
 }
@@ -849,6 +855,10 @@ socket.on("registration-result", (result = {}) => {
     if (registerPasswordInput) {
       registerPasswordInput.value = "";
       registerPasswordInput.dataset.touched = "false";
+    }
+
+    if (registerGenderInput) {
+      registerGenderInput.value = "Male";
     }
 
     updateRegistrationValidation();
@@ -909,6 +919,10 @@ socket.on("registration-result", (result = {}) => {
     registerPasswordInput.dataset.touched = "false";
   }
 
+  if (registerGenderInput) {
+    registerGenderInput.value = "Male";
+  }
+
   updateRegistrationValidation();
 
   closeAccount();
@@ -958,7 +972,6 @@ socket.on("session-result", (result) => {
 
   loggedIn = true;
   username = result.username;
-  document.title = `${username} - Video Chat Room`;
   userId = result.userId;
 
   showLoggedInButtons();
@@ -1044,7 +1057,6 @@ socket.on("login-result", (result) => {
 
   loggedIn = true;
   username = result.username;
-  document.title = `${username} - Video Chat Room`;
   userId = result.userId;
 
   if (result.sessionToken) {
@@ -1125,8 +1137,6 @@ function logout() {
   username = "";
   userId = null;
 
-  document.title = "Video Chat Room";
-
   showLoggedOutButtons();
   setAuthenticatedUI(false);
 
@@ -1184,6 +1194,7 @@ function joinRoom() {
   roomPeople[socket.id] = {
     id: socket.id,
     username,
+    gender: "Male",
     camera: cameraOn,
     microphone: microphoneOn,
   };
@@ -1227,6 +1238,7 @@ socket.on("joined-room", (data) => {
       roomPeople[user.id] = {
         id: user.id,
         username: user.username,
+        gender: user.gender === "Female" ? "Female" : "Male",
         camera: user.camera || false,
         microphone: user.microphone || false,
       };
@@ -1254,6 +1266,14 @@ socket.on("joined-room", (data) => {
   }
 });
 
+// The server sends the signed-in user's saved gender after joining.
+socket.on("room-user-profile", ({ gender } = {}) => {
+  if (roomPeople[socket.id]) {
+    roomPeople[socket.id].gender = gender === "Female" ? "Female" : "Male";
+    updatePeopleList();
+  }
+});
+
 // =========================================
 // EXISTING ROOM USERS
 // =========================================
@@ -1269,6 +1289,7 @@ socket.on("room-users", (users) => {
     roomPeople[user.id] = {
       id: user.id,
       username: user.username,
+      gender: user.gender === "Female" ? "Female" : "Male",
       camera: user.camera || false,
       microphone: user.microphone || false,
     };
@@ -1293,6 +1314,7 @@ socket.on("user-joined", (user) => {
   roomPeople[user.id] = {
     id: user.id,
     username: user.username,
+    gender: user.gender === "Female" ? "Female" : "Male",
     camera: user.camera || false,
     microphone: user.microphone || false,
   };
@@ -1429,6 +1451,13 @@ function updatePeopleList() {
       user.id === socket.id ? `${user.username} (You)` : user.username;
 
     row.appendChild(name);
+
+    const genderBadge = document.createElement("span");
+    genderBadge.className = "person-gender";
+    genderBadge.textContent = user.gender === "Female" ? "Female" : "Male";
+    genderBadge.style.cssText =
+      "font-size: 12px; padding: 3px 7px; border-radius: 10px; background: #333; color: #ddd; flex-shrink: 0;";
+    row.appendChild(genderBadge);
 
     if (user.camera) {
       if (user.id !== socket.id) {
@@ -2241,61 +2270,50 @@ async function renegotiate(remoteUserId, pc) {
 // =========================================
 
 function showLocalVideo() {
-  const container = document.getElementById("myCameraBox");
-
-  if (!container) {
-    console.error("My camera box was not found in the HTML.");
+  if (!videos) {
     return;
   }
 
-  let video = document.getElementById("local-video");
+  let container = document.getElementById("local-video-container");
 
-  if (!video) {
-    video = document.createElement("video");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "local-video-container";
+    container.className = "video-container";
+
+    const video = document.createElement("video");
+
     video.id = "local-video";
     video.autoplay = true;
     video.playsInline = true;
     video.muted = true;
 
-    container.appendChild(video);
-
     const label = document.createElement("div");
-    label.id = "local-video-label";
+
     label.className = "video-label";
     label.textContent = `${username} (You)`;
 
+    container.appendChild(video);
     container.appendChild(label);
+    videos.appendChild(container);
   }
 
-  const placeholder = document.getElementById("myCameraPlaceholder");
+  const video = document.getElementById("local-video");
 
-  if (placeholder) {
-    placeholder.style.display = "none";
+  if (video) {
+    video.srcObject = localStream;
+
+    video.play().catch((error) => {
+      console.error("Local video playback error:", error);
+    });
   }
-
-  video.srcObject = localStream;
-
-  video.play().catch((error) => {
-    console.error("Local video playback error:", error);
-  });
 }
 
 function hideLocalVideo() {
-  const video = document.getElementById("local-video");
-  const label = document.getElementById("local-video-label");
-  const placeholder = document.getElementById("myCameraPlaceholder");
+  const container = document.getElementById("local-video-container");
 
-  if (video) {
-    video.srcObject = null;
-    video.remove();
-  }
-
-  if (label) {
-    label.remove();
-  }
-
-  if (placeholder) {
-    placeholder.style.display = "flex";
+  if (container) {
+    container.remove();
   }
 }
 
@@ -2393,31 +2411,6 @@ function ensureRemoteVideo(remoteUserId, userName, stream) {
 function showRemoteVideo(remoteUserId) {
   console.log("Camera button clicked for:", remoteUserId);
 
-  // Limit the gallery to 8 remote cameras.
-  const gallery = document.getElementById("videos");
-  const currentContainer = document.getElementById(
-    `video-container-${remoteUserId}`,
-  );
-
-  const visibleCameraCount = gallery
-    ? Array.from(gallery.querySelectorAll(".video-container")).filter(
-        (tile) =>
-          tile.id.startsWith("video-container-") &&
-          tile.style.display !== "none",
-      ).length
-    : 0;
-
-  // Don't open a ninth camera, but allow an already-open camera.
-  if (
-    (!currentContainer || currentContainer.style.display === "none") &&
-    visibleCameraCount >= 8
-  ) {
-    alert(
-      "You can view up to 8 other cameras at a time. Close a camera before opening another.",
-    );
-    return;
-  }
-
   cameraWatchRequests[remoteUserId] = true;
 
   const person = roomPeople[remoteUserId];
@@ -2461,17 +2454,7 @@ function showRemoteVideo(remoteUserId) {
 
   video.srcObject = stream;
   video.muted = true;
-
   container.style.display = "block";
-
-  if (gallery) {
-    const visibleCameras = Array.from(
-      gallery.querySelectorAll(".video-container"),
-    ).filter((tile) => tile.style.display !== "none").length;
-
-    // Use smaller tiles when more than 4 cameras are open.
-    gallery.classList.toggle("gallery-eight", visibleCameras > 4);
-  }
 
   video.play().catch((error) => {
     console.error("Could not play the remote camera:", error);
@@ -2488,18 +2471,6 @@ function hideRemoteVideo(remoteUserId) {
 
   if (container) {
     container.remove();
-
-    // Recalculate the gallery layout after closing a camera.
-    const gallery = document.getElementById("videos");
-
-    if (gallery) {
-      const visibleCameras = Array.from(
-        gallery.querySelectorAll(".video-container"),
-      ).filter((tile) => tile.style.display !== "none").length;
-
-      // Return to larger tiles when 4 or fewer cameras remain.
-      gallery.classList.toggle("gallery-eight", visibleCameras > 4);
-    }
   }
 
   delete cameraWatchRequests[remoteUserId];
